@@ -1,0 +1,1 @@
+"""RIHAM Store application package."""
