@@ -18,6 +18,24 @@ async function api(url, opts = {}) {
 }
 function toast(msg) { const el = $('#adminToast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 3000); }
 let products = [], orders = [], categories = [], settings = {}, editingImages = [], editingReviewImages = [], pollTimer = null, lastNewOrderCount = 0, newCategoryImage = '';
+let originalEditSlug = '', slugManuallyEdited = false, autoSlugEnabled = false;
+const reservedSlugs = new Set(['admin','api','static','uploads','product','p','shop','collections','about','contact','policy','robots.txt','sitemap.xml','docs','redoc','openapi.json','health','favicon.ico','index','order','cart','login']);
+function slugFromName(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80).replace(/-+$/g,''); }
+function updateSlugPreview() {
+  const input=$('#productSlug'), preview=$('#slugPreview'); if(!input||!preview)return;
+  const slug=input.value.trim().toLowerCase(), valid=/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)&&!reservedSlugs.has(slug);
+  if(!slug){preview.textContent='বাংলা নাম হলে ইংরেজি পেজ লিংক নিজে লিখুন, অথবা সংরক্ষণের পরে ID-ভিত্তিক লিংক তৈরি হবে।';preview.classList.remove('invalid');return;}
+  preview.textContent=valid?`${location.origin}/${slug}`:'লিংকটি সঠিক নয়। ছোট ইংরেজি অক্ষর, সংখ্যা ও মাঝখানে হাইফেন ব্যবহার করুন।';
+  preview.classList.toggle('invalid',!valid);
+}
+async function copyText(text) {
+  if(navigator.clipboard&&window.isSecureContext){
+    try{await navigator.clipboard.writeText(text);return;}catch{}
+  }
+  const field=document.createElement('textarea');field.value=text;field.style.position='fixed';field.style.opacity='0';document.body.appendChild(field);field.select();
+  let copied=false;try{copied=document.execCommand('copy');}finally{field.remove();}
+  if(!copied)throw new Error('লিংক কপি করা যায়নি।');
+}
 const statusLabels = {new:'নতুন অর্ডার', confirmed:'ফোনে নিশ্চিত', processing:'প্রসেসিং', shipped:'পাঠানো হয়েছে', delivered:'ডেলিভারড', cancelled:'বাতিল'};
 const imageLabels = [['সামনের ছবি','Front view'],['পেছনের ছবি','Back view'],['এক পাশের ছবি','Side view'],['কাপড় / কাজের ডিটেইল','Fabric detail'],['রং / ক্লোজআপ','Close-up'],['অন্য ছবি','Other photo']];
 const isFullSetCategory = value => ['ফুল সেট','full set','full-set'].includes(String(value || '').trim().toLowerCase());
@@ -52,12 +70,16 @@ function renderStats() {
 function renderProducts() {
   const el = $('#adminProductList');
   if (!products.length) { el.innerHTML = '<div class="empty-state">এখনো কোনো পণ্য নেই। নতুন পণ্য যোগ করুন।</div>'; return; }
-  el.innerHTML = products.map(p => `<div class="admin-product-row">
-    <div class="admin-product-thumb">${p.images?.length ? `<img src="${esc(p.images[0])}" alt="">` : 'R.'}</div>
-    <div><strong>${esc(p.name)}</strong><small>${esc(p.category)} · স্টক ${p.stock} · ${p.active ? 'প্রকাশিত' : 'লুকানো'}${p.free_delivery ? ' · ডেলিভারি ফ্রি' : ''}</small></div>
-    <div class="row-price">${p.sale_price !== null && p.sale_price < p.price ? `<strong>${money(p.sale_price)}</strong><small><del>${money(p.price)}</del></small>` : money(p.price)}</div>
-    <div class="row-actions"><button class="text-btn" data-edit-product="${p.id}">এডিট</button><button class="text-btn danger" data-delete-product="${p.id}">মুছুন</button></div>
-  </div>`).join('');
+  el.innerHTML = products.map(p => {
+    const pageUrl = `${location.origin}/${encodeURIComponent(p.slug || '')}`;
+    return `<div class="admin-product-row">
+      <div class="admin-product-thumb">${p.images?.length ? `<img src="${esc(p.images[0])}" alt="">` : 'R.'}</div>
+      <div class="admin-product-info"><strong>${esc(p.name)}</strong><small>${esc(p.category)} · স্টক ${p.stock} · ${p.active ? 'প্রকাশিত' : 'লুকানো'}${p.free_delivery ? ' · ডেলিভারি ফ্রি' : ''}</small>
+        <div class="admin-product-link ${p.active ? '' : 'inactive'}"><span>${esc(pageUrl)}</span>${p.active ? '' : '<small>লুকানো — লিংক কাজ করবে না</small>'}</div></div>
+      <div class="row-price">${p.sale_price !== null && p.sale_price < p.price ? `<strong>${money(p.sale_price)}</strong><small><del>${money(p.price)}</del></small>` : money(p.price)}</div>
+      <div class="row-actions"><button class="text-btn" data-copy-product-url="${esc(pageUrl)}">কপি</button>${p.active ? `<a class="text-btn" href="${esc(pageUrl)}" target="_blank" rel="noopener">পেজ দেখুন ↗</a>` : '<span class="text-btn inactive-link">পেজ লুকানো</span>'}<button class="text-btn" data-edit-product="${p.id}">এডিট</button><button class="text-btn danger" data-delete-product="${p.id}">মুছুন</button></div>
+    </div>`;
+  }).join('');
 }
 function renderOrders() {
   const el = $('#adminOrderList');
@@ -111,6 +133,9 @@ function openEditor(product = null) {
   const f = $('#productForm'); f.reset();
   f.elements.id.value = product?.id || '';
   f.elements.name.value = product?.name || '';
+  f.elements.slug.value = product?.slug || '';
+  originalEditSlug = product?.slug || ''; slugManuallyEdited = false; autoSlugEnabled = !product;
+  $('#siteOriginPrefix').textContent = `${location.origin}/`;
   f.elements.category.value = product?.category || categories.find(c => c.active)?.name || 'বোরকা';
   f.elements.stock.value = product?.stock ?? 0;
   f.elements.price.value = product?.price ?? '';
@@ -125,7 +150,7 @@ function openEditor(product = null) {
   f.elements.active.checked = product ? !!product.active : true;
   editingImages = [...(product?.images || [])].slice(0, 6);
   $('#editorTitle').textContent = product ? 'পণ্য এডিট করুন' : 'নতুন পণ্য যোগ করুন';
-  $('#productError').textContent = ''; renderImageSlots(); updateDiscountPreview(); $('#productImages').value = '';
+  $('#productError').textContent = ''; renderImageSlots(); updateDiscountPreview(); updateSlugPreview(); $('#productImages').value = '';
   $('#productEditorOverlay').classList.add('open'); document.body.style.overflow = 'hidden';
 }
 function closeEditor() { $('#productEditorOverlay').classList.remove('open'); document.body.style.overflow = ''; }
@@ -159,6 +184,8 @@ document.querySelectorAll('.admin-tab').forEach(b => b.addEventListener('click',
   if (b.dataset.tab === 'orders') refreshOrders();
 }));
 $('#addProductBtn').addEventListener('click', () => openEditor());
+$('#productForm').elements.name.addEventListener('input', e => { const slug=$('#productSlug'); if(autoSlugEnabled && !slugManuallyEdited) slug.value=slugFromName(e.target.value); updateSlugPreview(); });
+$('#productForm').elements.slug.addEventListener('input', () => { slugManuallyEdited=true; updateSlugPreview(); });
 $('#productForm').elements.price.addEventListener('input', updateDiscountPreview);
 $('#productForm').elements.sale_price.addEventListener('input', updateDiscountPreview);
 $('#productForm').elements.category.addEventListener('change', e => { $('#productForm').elements.free_delivery.checked = isFullSetCategory(e.target.value); syncFreeDeliveryControl(); });
@@ -173,7 +200,10 @@ $('#productForm').addEventListener('submit', async e => {
   e.preventDefault(); const f = e.currentTarget, id = f.elements.id.value, price = Number(f.elements.price.value);
   const sale = f.elements.sale_price.value === '' ? null : Number(f.elements.sale_price.value);
   if (sale !== null && sale >= price) { $('#productError').textContent = 'ডিসকাউন্টের দাম মূল দামের চেয়ে কম হতে হবে।'; return; }
-  const payload = {name:f.elements.name.value.trim(), category:f.elements.category.value, description:f.elements.description.value.trim(), size_guide:f.elements.size_guide.value.trim(), price, sale_price:sale,
+  const slug=f.elements.slug.value.trim().toLowerCase();
+  if(slug && (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || reservedSlugs.has(slug))){$('#productError').textContent='পেজ লিংকটি সঠিক নয়। ছোট ইংরেজি অক্ষর, সংখ্যা ও মাঝখানে হাইফেন ব্যবহার করুন।';return;}
+  if(id && originalEditSlug && slug !== originalEditSlug && !confirm('এই লিংক বদলালে চলমান বিজ্ঞাপনের পুরোনো লিংক কাজ করবে না। নতুন লিংকটি বিজ্ঞাপনে আপডেট করতে হবে। আপনি কি পরিবর্তন করতে চান?'))return;
+  const payload = {name:f.elements.name.value.trim(), slug, category:f.elements.category.value, description:f.elements.description.value.trim(), size_guide:f.elements.size_guide.value.trim(), price, sale_price:sale,
     sizes:f.elements.sizes.value.split(',').map(x=>x.trim()).filter(Boolean), colors:f.elements.colors.value.split(',').map(x=>x.trim()).filter(Boolean),
     images:editingImages, stock:Number(f.elements.stock.value), featured:f.elements.featured.checked, free_delivery:f.elements.free_delivery.checked, active:f.elements.active.checked};
   const btn = f.querySelector('button[type="submit"]'); btn.disabled = true;
@@ -181,7 +211,9 @@ $('#productForm').addEventListener('submit', async e => {
   catch (err) { $('#productError').textContent = err.message; } finally { btn.disabled = false; }
 });
 $('#adminProductList').addEventListener('click', async e => {
+  const copy = e.target.closest('[data-copy-product-url]');
   const edit = e.target.closest('[data-edit-product]'), del = e.target.closest('[data-delete-product]');
+  if(copy){try{await copyText(copy.dataset.copyProductUrl);toast('পণ্যের পেজ লিংক কপি হয়েছে।');}catch{toast('লিংক কপি করা যায়নি।');}return;}
   if (edit) { const p = products.find(x => x.id === Number(edit.dataset.editProduct)); fillCategorySelect(); openEditor(p); }
   if (del) { const p = products.find(x => x.id === Number(del.dataset.deleteProduct)); if (!confirm(`“${p?.name || 'এই পণ্য'}” মুছে ফেলবেন?`)) return;
     try { await api(`/api/admin/products/${del.dataset.deleteProduct}`, {method:'DELETE'}); await loadAll(); toast('পণ্য মুছে ফেলা হয়েছে।'); } catch (err) { toast(err.message); }

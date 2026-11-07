@@ -24,6 +24,8 @@ services:
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: PUBLIC_SITE_URL
+        sync: false
       - key: STEADFAST_API_KEY
         sync: false
       - key: STEADFAST_SECRET_KEY

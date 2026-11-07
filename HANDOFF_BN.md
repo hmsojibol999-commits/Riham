@@ -1,4 +1,4 @@
-# RIHAM v7 Project Handoff
+# RIHAM v8.1 Project Handoff
 
 এই ZIP-এ RIHAM-এর V7 lookbook storefront, একই পাতার order form, Admin dashboard, order protection এবং delivery calculation আছে। Admin-এর internal product/category mapping রাখা হয়েছে; customer-facing Homepage-এ category option নেই। v7-এ public homepage-কে বড় বড় vertical collection photo এবং এক পাতার order form দিয়ে নতুনভাবে সাজানো হয়েছে।
 
@@ -47,3 +47,21 @@ Local test-এ default Dhaka delivery ৳৫০ এবং outside Dhaka ৳১�
 - Fake-order protection heuristic-based; SMS OTP বা শতভাগ প্রতিরোধের নিশ্চয়তা নেই।
 
 **এটি testable demo foundation; production security audit বা live business launch-এর চূড়ান্ত অনুমোদন নয়।**
+
+
+## V8.1 — পণ্যভিত্তিক Facebook Ad landing page
+- প্রতিটি active product-এর জন্য `/{slug}` public URL তৈরি হয়। Admin থেকে product add/edit করলেই URL তৈরি/আপডেট হয়।
+- Landing page-এ ওই product-এর সর্বোচ্চ ৬টি ছবি, price/discount, description, size guide, stock note এবং fixed-product COD form থাকে; product-choice ধাপ নেই।
+- Homepage-এর all-products lookbook + all-products order form আগের মতোই থাকে।
+- `/api/products/by-slug/{slug}` API যোগ হয়েছে। পুরোনো `/product/{id}` URL active product-এর নতুন slug URL-এ 301 redirect করে।
+- ASCII slug generation, reserved slug rejection, duplicate check এবং startup SQLite/PostgreSQL-compatible slug repair migration যোগ হয়েছে। Existing valid ASCII slugs অক্ষত থাকে।
+- Slug history সংরক্ষণ করা হয়নি; তাই Admin slug change-এর আগে সতর্ক করে। চলমান বিজ্ঞাপনে নতুন URL বসাতে হবে।
+- Product SEO/OG/Twitter/JSON-LD server HTML-এ inject হয়। Homepage OG image প্রথম active product image থেকে আসে।
+- `PUBLIC_SITE_URL` product/home metadata, canonical, sitemap ও robots-এর base URL; সেটি না থাকলে `request.base_url` ব্যবহৃত হয়।
+- Product landing page এবং home একই mode-aware `app.js` ও `/static/pixel.js` ব্যবহার করে। Meta events: PageView, ViewContent, InitiateCheckout, Purchase.
+- Store owner-এর বাংলা নির্দেশনা: `HOW_TO_USE_V8_1_BN.md`; পরীক্ষার ফল/সীমাবদ্ধতা: `TEST_REPORT_BN.md`।
+
+## V8.1 known verification limits
+- SQLite + FastAPI TestClient checks ran. Full `pip install -r requirements.txt` could not complete because package index DNS/network was unavailable in this environment.
+- Chromium exists, but the execution environment blocked local HTTP navigation with `ERR_BLOCKED_BY_ADMINISTRATOR`; real 390px/desktop browser interaction, visual rendering, JS console and Pixel queue remain unverified here.
+- Live Facebook crawler, Render, Steadfast and PostgreSQL were not available for live verification.

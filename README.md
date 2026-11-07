@@ -1,6 +1,14 @@
-# RIHAM Store — Master Demo v7
+# RIHAM Store — Master Demo v8.1
 
 Mobile-first Bengali e-commerce demo for modest wear: **বোরকা, হিজাব, নিকাব, ফুল সেট**. v7 rebuilds the public home page around the client’s Sarrah reference lookbook and order-form layout, while keeping RIHAM's own branding and client-owned information separate.
+
+## v8.1 additions
+- Automatic public landing page for every active product at `/{slug}`, with up to six product-only images and a single-product Cash-on-Delivery order form.
+- ASCII-safe editable slugs, reserved/duplicate validation, and additive startup repair for legacy Unicode/reserved slugs.
+- Product-page SEO/Open Graph/Twitter metadata and Product JSON-LD injected in server HTML; homepage Open Graph image is selected from the first active product.
+- Admin shows each full product page URL with copy/open actions and a warning before changing an existing ad link.
+- `PUBLIC_SITE_URL` controls canonical, social-preview, sitemap and robots URLs; without it, the request host is used.
+- Shared mode-aware `app.js` is used by both homepage and product pages; no extra runtime dependency.
 
 ## v7 additions
 - Updated the six-product demo catalogue with 17 unique reference-site product-photo URLs across front, side, back and detail views.
@@ -24,7 +32,7 @@ Mobile-first Bengali e-commerce demo for modest wear: **বোরকা, হি�
 - Additive v5 database migration; existing v4 products/orders/settings remain intact.
 
 ## Existing store features
-- V7 public home: full-height photo lookbook and same-page Cash-on-Delivery order form; no public category menu/tiles. Legacy product detail and cart endpoints remain in the project.
+- V8.1 public home: full-height photo lookbook and same-page Cash-on-Delivery order form; no public category menu/tiles. Each active product also has an automatic `/{slug}` product-only landing page. `/product/{id}` now permanently redirects to the slug URL.
 - Product variants, stock, discount price preview and free-delivery product flag.
 - Full-set free delivery; other products use Dhaka/outside Dhaka area charges.
 - Admin login with a server-side secret, order dashboard, repeat-order warnings, bot-trap and rate limits.
@@ -50,7 +58,7 @@ The local demo uses SQLite. No API key is needed to test products, cart, COD che
 Before launch, verify that each product marked as a full set really includes burqa + hijab + niqab.
 
 ## Admin workflow
-- Products: add/edit price, sale price, category, stock, sizes, colors, six images and size guide.
+- Products: add/edit price, sale price, category, stock, sizes, colours, six images, size guide and the public page slug. Copy the page URL in the product list for Facebook ads.
 - New Arrival: enable/disable, title, description and upload one banner image.
 - Benefits: edit four title/description cards.
 - Reviews: upload up to five real customer images; get permission before publishing.
@@ -65,7 +73,7 @@ Before launch, verify that each product marked as a full set really includes bur
 - `DATABASE_URL`: SQLite locally or Supabase PostgreSQL for hosted use.
 - `STEADFAST_API_KEY` / `STEADFAST_SECRET_KEY`: leave blank for demo; add client merchant credentials only to hosting Environment Variables.
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`: optional persistent image storage. Without Cloudinary, local uploads may be lost on a redeploy/restart on some hosts.
-- `PUBLIC_SITE_URL`: optional canonical website domain for sitemap and robots.
+- `PUBLIC_SITE_URL`: optional canonical website origin used for product/home canonical metadata, Open Graph URLs, sitemap and robots; leave blank to use the incoming request host.
 
 ## Fake-order protection limits
 The demo uses a honeypot field, minimum form time, IP/phone rate limiting and duplicate-order detection. These reduce spam but do not verify a customer's identity and cannot guarantee all fake orders are blocked. Admin should call the customer and mark the order **ফোনে নিশ্চিত** before courier submission. SMS OTP is not included.
@@ -96,3 +104,11 @@ The reference TXT describes another brand. RIHAM does not inherit Sarrah BD's lo
 - The order form is embedded directly in the home page. Product, size, quantity, customer name, phone, full delivery address, delivery area, COD payment, delivery charge and total are shown together. The form submits to the existing server-side order API.
 - Full-set-only free delivery is calculated by the backend. A mixed or non-full-set order pays the configured area fee.
 - Admin can change the lookbook by editing each product's Images list (up to six per product). Image slot order controls the order shown in the collection; removing an image shifts the remaining photos forward. Images are remote references and still carry whatever source watermark exists.
+
+
+## V8.1 product ad links
+- Add a product in Admin → পণ্য পরিচালনা. Its page link is created automatically from the product name using ASCII letters/numbers and hyphens. Bengali-only names use `product-<id>` unless an English slug is entered.
+- Copy the URL from the product list and use it as the Facebook ad destination. The landing page contains only that product.
+- Changing a slug changes the ad URL. There is no slug-history redirect in this version; Admin asks for confirmation and warns that old running ad links will stop working. Update existing ads after changing it.
+- To move to a custom domain later: set `PUBLIC_SITE_URL=https://your-domain` in Render Environment, then add the same domain under Render → Settings → Custom Domains and configure the DNS records Render shows. No source-code edit is needed.
+- See `HOW_TO_USE_V8_1_BN.md` for the owner-facing Bengali instructions and `TEST_REPORT_BN.md` for test limitations/results.

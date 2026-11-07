@@ -39,3 +39,15 @@
 - Order form ছোট (compact) করা হয়েছে (ফর্ম, বাটন, কার্ড, ইনপুটের মাপ কমানো)।
 - নতুন: গ্রাহক রিভিউ slider (swipe, তীর, dots, autoplay)। Admin → সেটিংস → গ্রাহকের রিভিউ ছবি (সর্বোচ্চ ১০টি)।
 - নতুন: Meta Pixel + GA4 loader (app/static/pixel.js)। Admin-এ Pixel ID বসালেই চালু। Events: PageView, ViewContent, InitiateCheckout, Purchase (মোট টাকা, BDT)। ID format backend-এও যাচাই হয়।
+
+
+## V8.1 — পণ্যভিত্তিক Facebook Ad পেজ
+- Admin থেকে পণ্য যোগ করলে স্বয়ংক্রিয়ভাবে `/{slug}` লিংক তৈরি হয়; লিংক ASCII, সম্পাদনাযোগ্য এবং duplicate/reserved slug server-side-এ প্রত্যাখ্যাত হয়। বাংলা-only নামের জন্য `product-<id>` fallback আছে।
+- প্রতিটি active পণ্যের জন্য আলাদা landing page যোগ হয়েছে—শুধু সেই পণ্যের সর্বোচ্চ ৬টি ছবি, বিবরণ, দাম/ছাড়, সাইজ গাইড, স্টক অবস্থা এবং নির্দিষ্ট পণ্যের COD অর্ডার ফর্ম দেখা যায়। Homepage-এর আগের all-products lookbook ও order form রাখা হয়েছে।
+- পুরোনো Unicode/reserved slug startup migration-এ ঠিক হয়; valid ASCII slug অপরিবর্তিত থাকে। পুরোনো `/product/{id}` route active পণ্যের নতুন slug URL-এ 301 redirect করে।
+- Product landing page-এর title, description, Open Graph, Twitter Card, canonical ও Product JSON-LD server-side HTML-এ তৈরি হয়। Homepage OG image প্রথম active product-এর প্রথম ছবি থেকে আসে।
+- Admin পণ্য তালিকায় পূর্ণ পেজ লিংক, কপি ও পেজ দেখার সুবিধা; slug পরিবর্তনের আগে চলমান বিজ্ঞাপনের পুরোনো URL বন্ধ হয়ে যাওয়ার সতর্কতা যোগ হয়েছে।
+- WhatsApp message-এ পণ্যের নাম, কার্যকর দাম ও page URL যুক্ত হয়। Landing page-এ product-specific Pixel ViewContent, InitiateCheckout ও Purchase tracking যুক্ত হয়েছে; customer-এর ব্যক্তিগত তথ্য Pixel-এ পাঠানো হয় না।
+- `PUBLIC_SITE_URL` দেওয়া থাকলে SEO, canonical, sitemap ও robots-এ সেটি ব্যবহৃত হয়; না থাকলে request host ব্যবহৃত হয়। Render environment template-এ ভ্যারিয়েবলটি যোগ হয়েছে।
+- বাংলা owner guide এবং test report যোগ হয়েছে: `HOW_TO_USE_V8_1_BN.md`, `TEST_REPORT_BN.md`।
+- কোনো নতুন runtime dependency যোগ হয়নি। Chromium, বাস্তব Facebook crawler, Render, Steadfast live API ও PostgreSQL verification environment সীমাবদ্ধতায় সম্পন্ন হয়নি—বিস্তারিত test report-এ।

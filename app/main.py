@@ -1,11 +1,11 @@
-import os, re, json, time, secrets, hmac, uuid, logging
+import os, re, json, time, secrets, hmac, uuid, logging, html
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Literal
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field, field_validator
@@ -23,7 +23,7 @@ UPLOADS = ROOT / "uploads"
 UPLOADS.mkdir(exist_ok=True)
 
 production = os.getenv("APP_ENV", "development").lower() == "production"
-app = FastAPI(title="RIHAM Store", version="7.0.0", description="RIHAM modest fashion store", docs_url=None if production else "/docs", redoc_url=None if production else "/redoc", openapi_url=None if production else "/openapi.json")
+app = FastAPI(title="RIHAM Store", version="8.1.0", description="RIHAM modest fashion store", docs_url=None if production else "/docs", redoc_url=None if production else "/redoc", openapi_url=None if production else "/openapi.json")
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "" ) or secrets.token_urlsafe(48),
@@ -112,6 +112,7 @@ class LoginInput(BaseModel):
 
 class ProductInput(BaseModel):
     name: str = Field(min_length=2, max_length=180)
+    slug: str = Field(default="", max_length=80)
     category: str = Field(default="বোরকা", max_length=80)
     description: str = Field(default="", max_length=5000)
     size_guide: str = Field(default="", max_length=3000)
@@ -124,6 +125,14 @@ class ProductInput(BaseModel):
     featured: bool = False
     active: bool = True
     free_delivery: bool = False
+
+    @field_validator("slug")
+    @classmethod
+    def _slug_ok(cls, v):
+        v = (v or "").strip().lower()
+        if v and v not in RESERVED_SLUGS and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", v):
+            raise ValueError("পেজ লিংক শুধু ছোট ইংরেজি অক্ষর, সংখ্যা ও মাঝখানে হাইফেন দিয়ে লিখুন।")
+        return v
 
     @field_validator("images")
     @classmethod
@@ -259,9 +268,59 @@ class StatusInput(BaseModel):
     status: str
 
 
-def slugify(value: str) -> str:
-    value = re.sub(r"[^a-zA-Z0-9\u0980-\u09FF]+", "-", value.strip().lower()).strip("-")
-    return value[:180] or uuid.uuid4().hex[:10]
+RESERVED_SLUGS = {
+    "admin", "api", "static", "uploads", "product", "p", "shop", "collections",
+    "about", "contact", "policy", "robots.txt", "sitemap.xml", "docs", "redoc",
+    "openapi.json", "health", "favicon.ico", "index", "order", "cart", "login",
+}
+SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+def slugify(value: str, fallback: str = "") -> str:
+    """Create a lowercase ASCII-only URL slug."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return slug[:80].strip("-") or fallback
+
+def assert_slug_allowed(slug: str):
+    if slug in RESERVED_SLUGS:
+        raise HTTPException(400, "এই পেজ লিংকটি ব্যবহার করা যাবে না। অন্য একটি লিংক লিখুন।")
+    if not SLUG_PATTERN.fullmatch(slug or ""):
+        raise HTTPException(400, "পেজ লিংক শুধু ছোট ইংরেজি অক্ষর, সংখ্যা ও মাঝখানে হাইফেন দিয়ে লিখুন।")
+
+def unique_product_slug(db: Session, base: str, exclude_id: int | None = None) -> str:
+    base = (base or "product")[:80].strip("-") or "product"
+    candidate, n = base, 2
+    while True:
+        query = select(Product.id).where(Product.slug == candidate)
+        if exclude_id is not None:
+            query = query.where(Product.id != exclude_id)
+        if candidate not in RESERVED_SLUGS and db.scalar(query) is None:
+            return candidate
+        suffix = f"-{n}"
+        candidate = base[:80-len(suffix)].rstrip("-") + suffix
+        n += 1
+
+def site_base_url(request: Request) -> str:
+    return os.getenv("PUBLIC_SITE_URL", "").strip().rstrip("/") or str(request.base_url).rstrip("/")
+
+def absolute_site_url(value: str, base_url: str) -> str:
+    value = str(value or "").strip()
+    if value.startswith("https://") or value.startswith("http://"):
+        return value
+    if value.startswith("/"):
+        return base_url + value
+    return base_url + "/" + value if value else ""
+
+def html_template(name: str, replacements: dict[str, str]) -> str:
+    content = (STATIC / name).read_text(encoding="utf-8")
+    # One pass prevents an admin-entered value containing another placeholder
+    # token from being interpreted as a second template instruction.
+    return re.sub(r"__([A-Z0-9_]+)__", lambda match: replacements.get(match.group(1), match.group(0)), content)
+
+def bn_money(value) -> str:
+    try:
+        return "৳" + format(float(value or 0), ",.0f")
+    except (TypeError, ValueError):
+        return "৳০"
 
 
 FREE_DELIVERY_CATEGORIES = {"ফুল সেট", "full set", "full-set"}
@@ -495,12 +554,41 @@ def migrate_v5():
                 conn.execute(text(f"ALTER TABLE site_config ADD COLUMN {name} {ddl}"))
 
 
+def migrate_v6_slugs():
+    """Repair legacy Unicode/reserved slugs without changing valid ASCII links."""
+    from sqlalchemy import inspect
+    insp = inspect(engine)
+    if "products" not in set(insp.get_table_names()):
+        return
+    with Session(engine) as db:
+        rows = db.scalars(select(Product).order_by(Product.id.asc())).all()
+        # Reserve every currently-valid slug first so an earlier legacy row cannot
+        # accidentally take a valid link belonging to a later product.
+        keep = {str(row.slug) for row in rows if SLUG_PATTERN.fullmatch(str(row.slug or "")) and str(row.slug) not in RESERVED_SLUGS}
+        for product in rows:
+            current = str(product.slug or "")
+            if SLUG_PATTERN.fullmatch(current) and current not in RESERVED_SLUGS:
+                continue
+            base = slugify(product.name, fallback=f"product-{product.id}")
+            if base in RESERVED_SLUGS:
+                base = f"product-{product.id}"
+            candidate, n = base[:80], 2
+            while candidate in keep:
+                suffix = f"-{n}"
+                candidate = base[:80-len(suffix)].rstrip("-") + suffix
+                n += 1
+            product.slug = candidate
+            keep.add(candidate)
+        db.commit()
+
+
 @app.on_event("startup")
 def startup():
     check_secrets()
     migrate_v4()
     migrate_v5()
     Base.metadata.create_all(bind=engine)
+    migrate_v6_slugs()
     with next(get_db()) as db:
         seed_demo(db)
     if not os.getenv("SESSION_SECRET"):
@@ -551,16 +639,36 @@ def order_dict(o: Order):
             "courier_status": o.courier_status, "created_at": o.created_at.isoformat() if o.created_at else None}
 
 @app.get("/")
-def home():
-    return FileResponse(STATIC / "index.html")
+def home(request: Request, db: Session = Depends(get_db)):
+    cfg = ensure_config(db)
+    base = site_base_url(request)
+    first = db.scalar(select(Product).where(Product.active.is_(True)).order_by(Product.id.asc()))
+    image = next((str(item).strip() for item in (first.images or []) if str(item).strip()), "") if first else ""
+    image = image or (cfg.hero_image or "")
+    title = cfg.seo_title or f"{cfg.store_name or 'RIHAM'} | বোরকা, হিজাব ও নিকাব"
+    description = cfg.seo_description or "বোরকা, হিজাব ও নিকাবের মার্জিত কালেকশন। সারা বাংলাদেশে ক্যাশ অন ডেলিভারি।"
+    image_url = absolute_site_url(image, base)
+    replacements = {
+        "HOME_TITLE": html.escape(title, quote=True),
+        "HOME_DESCRIPTION": html.escape(description, quote=True),
+        "HOME_OG_TITLE": html.escape(title, quote=True),
+        "HOME_OG_DESCRIPTION": html.escape(description, quote=True),
+        "HOME_OG_IMAGE": html.escape(image_url, quote=True),
+        "HOME_OG_URL": html.escape(base + "/", quote=True),
+        "HOME_CANONICAL": html.escape(base + "/", quote=True),
+    }
+    return HTMLResponse(html_template("index.html", replacements))
 
 @app.get("/admin")
 def admin_page():
     return FileResponse(STATIC / "admin.html")
 
 @app.get("/product/{product_id}")
-def product_page(product_id: int):
-    return FileResponse(STATIC / "product.html")
+def product_page(product_id: int, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if not product or not product.active:
+        return HTMLResponse((STATIC / "not-found.html").read_text(encoding="utf-8"), status_code=404)
+    return RedirectResponse(url=f"/{product.slug}", status_code=301)
 
 @app.get("/shop")
 @app.get("/collections")
@@ -577,20 +685,21 @@ def information_page(policy_name: str = "about"):
 
 @app.get("/robots.txt")
 def robots(request: Request):
-    base = os.getenv("PUBLIC_SITE_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
+    base = site_base_url(request)
     return Response("User-agent: *\nAllow: /\nDisallow: /admin\nSitemap: " + base + "/sitemap.xml\n", media_type="text/plain")
 
 @app.get("/sitemap.xml")
 def sitemap(request: Request, db: Session = Depends(get_db)):
-    base = os.getenv("PUBLIC_SITE_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
+    base = site_base_url(request)
     urls = ["/", "/shop", "/about", "/contact", "/policy/delivery", "/policy/return", "/policy/privacy"]
-    urls += [f"/product/{p.id}" for p in db.scalars(select(Product).where(Product.active.is_(True))).all()]
-    xml = '<?xml version="1.0" encoding="UTF-8"?>' + '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join(f'<url><loc>{base}{u}</loc></url>' for u in urls) + '</urlset>'
+    urls += [f"/{p.slug}" for p in db.scalars(select(Product).where(Product.active.is_(True))).all()]
+    from xml.sax.saxutils import escape as xml_escape
+    xml = '<?xml version="1.0" encoding="UTF-8"?>' + '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' + ''.join(f'<url><loc>{xml_escape(base + u)}</loc></url>' for u in urls) + '</urlset>'
     return Response(xml, media_type="application/xml")
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "app": "RIHAM", "version": "7.0.0"}
+    return {"status": "ok", "app": "RIHAM", "version": "8.1.0"}
 
 @app.get("/api/products")
 def public_products(category: str | None = None, search: str | None = None, db: Session = Depends(get_db)):
@@ -600,6 +709,13 @@ def public_products(category: str | None = None, search: str | None = None, db: 
     if search:
         q = q.where(Product.name.ilike(f"%{search[:80]}%"))
     return [product_dict(p) for p in db.scalars(q.order_by(Product.featured.desc(), Product.id.desc())).all()]
+
+@app.get("/api/products/by-slug/{slug}")
+def public_product_by_slug(slug: str, db: Session = Depends(get_db)):
+    p = db.scalar(select(Product).where(Product.slug == slug))
+    if not p or not p.active:
+        raise HTTPException(404, "পণ্যটি পাওয়া যায়নি।")
+    return product_dict(p)
 
 @app.get("/api/products/{product_id}")
 def public_product(product_id: int, db: Session = Depends(get_db)):
@@ -741,15 +857,25 @@ def create_product(payload: ProductInput, request: Request, db: Session = Depend
         raise HTTPException(400, "ডিসকাউন্টের দাম মূল দামের চেয়ে কম হতে হবে।")
     if len(payload.images) > 6:
         raise HTTPException(400, "সর্বোচ্চ ৬টি ছবি যোগ করা যাবে।")
-    base = slugify(payload.name)
-    slug = base
-    n = 2
-    while db.scalar(select(Product).where(Product.slug == slug)):
-        slug = f"{base}-{n}"; n += 1
     if payload.free_delivery and not is_full_set_category_name(payload.category):
         raise HTTPException(400, "শুধু সম্পূর্ণ ফুল সেট ক্যাটাগরির পণ্যে ফ্রি ডেলিভারি চালু করা যাবে।")
-    p = Product(**payload.model_dump(), slug=slug)
-    db.add(p); db.commit(); db.refresh(p)
+    requested_slug = (payload.slug or "").strip().lower()
+    if requested_slug:
+        assert_slug_allowed(requested_slug)
+        if db.scalar(select(Product.id).where(Product.slug == requested_slug)) is not None:
+            raise HTTPException(400, "এই পেজ লিংকটি আগে থেকেই ব্যবহার হচ্ছে। অন্য একটি লিংক দিন।")
+        slug = requested_slug
+    else:
+        base = slugify(payload.name)
+        slug = unique_product_slug(db, base) if base else f"product-{uuid.uuid4().hex[:8]}"
+    data = payload.model_dump()
+    data.pop("slug", None)
+    p = Product(**data, slug=slug)
+    db.add(p)
+    db.flush()
+    if not requested_slug and not slugify(payload.name):
+        p.slug = unique_product_slug(db, f"product-{p.id}")
+    db.commit(); db.refresh(p)
     return product_dict(p)
 
 @app.put("/api/admin/products/{product_id}")
@@ -762,8 +888,20 @@ def update_product(product_id: int, payload: ProductInput, request: Request, db:
     if len(payload.images) > 6: raise HTTPException(400, "সর্বোচ্চ ৬টি ছবি যোগ করা যাবে।")
     if payload.free_delivery and not is_full_set_category_name(payload.category):
         raise HTTPException(400, "শুধু সম্পূর্ণ ফুল সেট ক্যাটাগরির পণ্যে ফ্রি ডেলিভারি চালু করা যাবে।")
+    if "slug" in payload.model_fields_set:
+        requested_slug = (payload.slug or "").strip().lower()
+        if not requested_slug:
+            base = slugify(payload.name, fallback=f"product-{p.id}")
+            requested_slug = unique_product_slug(db, base, exclude_id=p.id)
+    else:
+        requested_slug = p.slug
+    assert_slug_allowed(requested_slug)
+    if db.scalar(select(Product.id).where(Product.slug == requested_slug, Product.id != p.id)) is not None:
+        raise HTTPException(400, "এই পেজ লিংকটি অন্য একটি পণ্যে ব্যবহার হচ্ছে। অন্য লিংক দিন।")
     data = payload.model_dump()
+    data.pop("slug", None)
     for key, value in data.items(): setattr(p, key, value)
+    p.slug = requested_slug
     db.commit(); db.refresh(p)
     return product_dict(p)
 
@@ -972,3 +1110,59 @@ def send_to_steadfast(order_id: int, request: Request, db: Session = Depends(get
     except Exception as exc:
         log.exception("Steadfast response could not be processed")
         raise HTTPException(502, "Steadfast response সফলভাবে পড়া যায়নি। Merchant API documentation মিলিয়ে দেখুন।") from exc
+
+
+@app.get("/{slug}")
+def product_landing(slug: str, request: Request, db: Session = Depends(get_db)):
+    # This one-segment catch-all is intentionally declared after every fixed route and mount.
+    if not re.fullmatch(r"[a-z0-9-]+", slug):
+        raise HTTPException(404, "পেজটি পাওয়া যায়নি।")
+    product = db.scalar(select(Product).where(Product.slug == slug))
+    if not product or not product.active:
+        return HTMLResponse((STATIC / "not-found.html").read_text(encoding="utf-8"), status_code=404)
+    cfg = ensure_config(db)
+    base = site_base_url(request)
+    canonical = base + "/" + product.slug
+    title = f"{product.name} | {cfg.store_name or 'RIHAM'}"
+    description = product.description or f"{product.name} — সারা বাংলাদেশে ক্যাশ অন ডেলিভারি।"
+    image = next((str(item).strip() for item in (product.images or []) if str(item).strip()), "")
+    if not image:
+        image = cfg.hero_image or ""
+    image_url = absolute_site_url(image, base)
+    effective_price = product.sale_price if product.sale_price is not None and product.sale_price < product.price else product.price
+    availability = "https://schema.org/InStock" if int(product.stock or 0) > 0 else "https://schema.org/OutOfStock"
+    json_ld = {
+        "@context": "https://schema.org", "@type": "Product", "name": product.name,
+        "description": description, "image": [image_url] if image_url else [],
+        "sku": str(product.id), "offers": {"@type": "Offer", "priceCurrency": "BDT",
+        "price": str(round(float(effective_price or 0), 2)), "availability": availability, "url": canonical},
+    }
+    json_ld_text = json.dumps(json_ld, ensure_ascii=False, separators=(",", ":"))
+    json_ld_text = json_ld_text.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")
+    sale_valid = product.sale_price is not None and product.sale_price < product.price
+    price_html = (
+        f"<strong>{html.escape(bn_money(effective_price))}</strong><del>{html.escape(bn_money(product.price))}</del><span>{round((product.price - effective_price) / product.price * 100) if product.price else 0}% ছাড়</span>"
+        if sale_valid else f"<strong>{html.escape(bn_money(product.price))}</strong>"
+    )
+    size_guide_html = f"<div class=\"landing-size-guide\"><b>সাইজ গাইড</b><p>{html.escape(product.size_guide or '')}</p></div>" if product.size_guide else ""
+    stock_note = f"স্টকে আছে · {product.stock}টি" if int(product.stock or 0) > 0 else "স্টক শেষ"
+    replacements = {
+        "PRODUCT_TITLE": html.escape(title, quote=True),
+        "PRODUCT_NAME": html.escape(product.name),
+        "PRODUCT_PRICE_HTML": price_html,
+        "PRODUCT_DESCRIPTION_TEXT": html.escape(product.description or "পণ্যের বিস্তারিত জানতে WhatsApp-এ যোগাযোগ করুন।"),
+        "PRODUCT_SIZE_GUIDE_HTML": size_guide_html,
+        "PRODUCT_STOCK_NOTE": html.escape(stock_note),
+        "PRODUCT_DESCRIPTION": html.escape(description, quote=True),
+        "PRODUCT_OG_TITLE": html.escape(title, quote=True),
+        "PRODUCT_OG_DESCRIPTION": html.escape(description, quote=True),
+        "PRODUCT_OG_IMAGE": html.escape(image_url, quote=True),
+        "PRODUCT_OG_URL": html.escape(canonical, quote=True),
+        "PRODUCT_CANONICAL": html.escape(canonical, quote=True),
+        "PRODUCT_JSON_LD": json_ld_text,
+        "PRODUCT_SLUG": html.escape(product.slug, quote=True),
+        "HEADER_ORDER_HREF": "#landingProductDetails" if int(product.stock or 0) <= 0 else "#order",
+        "HEADER_ORDER_CLASS": "stock-unavailable" if int(product.stock or 0) <= 0 else "",
+        "HEADER_ORDER_DISABLED": "true" if int(product.stock or 0) <= 0 else "false",
+    }
+    return HTMLResponse(html_template("product-landing.html", replacements))

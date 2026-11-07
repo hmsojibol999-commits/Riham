@@ -40,7 +40,7 @@
     } catch (e) {}
   }
 
-  // Public helper used by app.js / product.js
+  // Public helper used by the shared home and product-landing mode in app.js
   window.rihamTrack = function (name, data) {
     if (!ready) { queue.push([name, data]); return; }
     send(name, data);

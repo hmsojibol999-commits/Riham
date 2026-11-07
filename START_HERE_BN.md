@@ -1,4 +1,4 @@
-# RIHAM Master Demo v7 — শুরু করার সহজ নির্দেশনা
+# RIHAM Master Demo v8.1 — শুরু করার সহজ নির্দেশনা
 
 ## ১) লোকাল ডেমো চালানো
 1. ZIP Extract করুন।
@@ -60,3 +60,11 @@ HTTPS/secure cookie, Supabase connection, Cloudinary persistence, database backu
 - ছবিতে source watermark থাকলে সেটি থাকবে; ZIP-এর ভেতরে watermark সরানো বা RIHAM watermark বসানো হয়নি। live করার আগে অনুমোদিত clean RIHAM image Admin থেকে upload করুন।
 - শুরুতে দেখানো দাম/স্টক/সাইজ demo; client-এর কাছ থেকে confirm করে বদলান।
 - Delivery test: শুধু ফুল সেট = free; ফুল সেট + hijab/niqab = Dhaka/outside fee; শুধু hijab/niqab = Dhaka/outside fee।
+
+
+## ৯) Facebook বিজ্ঞাপনের জন্য পণ্যের আলাদা লিংক (V8.1)
+- নতুন পণ্য Save করলে তার আলাদা পেজ নিজে তৈরি হবে।
+- পণ্য তালিকা থেকে সম্পূর্ণ URL-এর পাশে `কপি` চাপুন; বিজ্ঞাপনের Website URL/Destination-এ সেটি দিন।
+- পেজে শুধু ওই পণ্যের ছবি, বিবরণ ও অর্ডার ফর্ম থাকবে।
+- slug পরিবর্তন করলে পুরোনো বিজ্ঞাপন লিংক আর কাজ করবে না; বিজ্ঞাপনে নতুন লিংক বসান।
+- বিস্তারিত: `HOW_TO_USE_V8_1_BN.md`।
