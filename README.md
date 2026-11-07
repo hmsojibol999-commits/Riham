@@ -1,6 +1,14 @@
-# RIHAM Store — Master Demo v8.1
+# RIHAM Store — Master Demo v8.3
 
-Mobile-first Bengali e-commerce demo for modest wear: **বোরকা, হিজাব, নিকাব, ফুল সেট**. v7 rebuilds the public home page around the client’s Sarrah reference lookbook and order-form layout, while keeping RIHAM's own branding and client-owned information separate.
+Mobile-first Bengali e-commerce demo for modest wear: **বোরকা, হিজাব, নিকাব, ফুল সেট**. v8.3 makes browsing simpler: the homepage shows one compact card per active product, and each order link opens the product's own landing page. The product page has an automatic gallery and its own COD order form, with a shared footer across storefront pages.
+
+## v8.3 additions
+- Homepage এখন প্রতি active পণ্যের জন্য একটি compact card দেখায়; পণ্যের প্রথম ছবি, নাম ও দাম দেখা যায়। এক পণ্যের সব ছবি আর আলাদা লম্বা lookbook frame হিসেবে আসে না।
+- Homepage-এর প্রতিটি “অর্ডার করুন” লিংক সরাসরি ওই পণ্যের `/{slug}` landing page খোলে; Homepage-এ কোনো order form নেই।
+- Product landing page-এ সর্বোচ্চ ছয়টি ছবি একটি fixed-height carousel-এ থাকে; প্রায় ২.৮ সেকেন্ডে slide হয়, সঙ্গে arrow, dot ও touch swipe control আছে।
+- Homepage card scroll করে viewport-এ এলে নিচ থেকে মসৃণভাবে আসে; reduced-motion সেটিংস সম্মান করা হয়।
+- Homepage, product landing এবং About/Contact/Policy page server-side একই `app/static/footer.html` shared footer পায়; WhatsApp, About, Contact, Policy ও Admin link একই layout-এ থাকে।
+- 390px ও desktop viewport-এ Chromium-এর in-memory browser test; carousel auto-slide ও JavaScript console error যাচাই করা হয়েছে (mocked API data; local URL navigation environment দ্বারা blocked)।
 
 ## v8.1 additions
 - Automatic public landing page for every active product at `/{slug}`, with up to six product-only images and a single-product Cash-on-Delivery order form.
@@ -32,7 +40,7 @@ Mobile-first Bengali e-commerce demo for modest wear: **বোরকা, হি�
 - Additive v5 database migration; existing v4 products/orders/settings remain intact.
 
 ## Existing store features
-- V8.1 public home: full-height photo lookbook and same-page Cash-on-Delivery order form; no public category menu/tiles. Each active product also has an automatic `/{slug}` product-only landing page. `/product/{id}` now permanently redirects to the slug URL.
+- V8.3 public home: compact one-card-per-product catalogue; the order link opens that product’s `/{slug}` page. There is no homepage order form. Each product landing page has its own auto-sliding photo gallery and fixed-product Cash-on-Delivery form. `/product/{id}` permanently redirects to the slug URL.
 - Product variants, stock, discount price preview and free-delivery product flag.
 - Full-set free delivery; other products use Dhaka/outside Dhaka area charges.
 - Admin login with a server-side secret, order dashboard, repeat-order warnings, bot-trap and rate limits.
@@ -46,7 +54,7 @@ Mobile-first Bengali e-commerce demo for modest wear: **বোরকা, হি�
 5. Run: `uvicorn app.main:app --reload`.
 6. Store: `http://127.0.0.1:8000`; Admin: `http://127.0.0.1:8000/admin`.
 
-The local demo uses SQLite. No API key is needed to test products, cart, COD checkout or the admin panel. A fresh database seeds six demo products; an existing database keeps its existing product catalogue rather than overwriting client-managed data.
+The local demo uses SQLite. No API key is needed to test the product catalogue, COD checkout or the admin panel. A fresh database seeds six demo products; an existing database keeps its existing product catalogue rather than overwriting client-managed data.
 
 ## Delivery logic (v7)
 - Only complete burqa + hijab + niqab full-set products should have **Free Delivery** enabled in Admin. Keep it off for a standalone hijab, standalone niqab, or hijab + niqab combo.

@@ -40,39 +40,41 @@ function updateWhatsapp(){
   const msg=p
     ? `আসসালামু আলাইকুম, ${p.name} সম্পর্কে জানতে চাই। দাম: ${money(effectivePrice(p))}। পেজ: ${location.href}`
     : 'আসসালামু আলাইকুম, RIHAM-এর বোরকা কালেকশন সম্পর্কে জানতে চাই।';
-  ['#contactWhatsapp','#floatingWhatsapp','#sizeHelpWhatsapp','#landingSizeWhatsapp'].forEach(sel=>{const el=$(sel);if(el){el.href=whatsappUrl(msg);el.addEventListener('click',e=>{if(el.href.endsWith('#')){e.preventDefault();toast('WhatsApp নম্বর Admin Panel থেকে সেট করতে হবে।');}});}});
-}
-function getLookbookImages(){
-  const result=[],seen=new Set();
-  const products=[...state.products].sort((a,b)=>Number(a.id)-Number(b.id));
-  products.forEach(product=>{
-    (product.images||[]).forEach((src,index)=>{
-      const url=String(src||'').trim();
-      if(!url||seen.has(url))return;
-      seen.add(url);
-      result.push({src:url,product,view:index+1});
-    });
-  });
-  return result;
+  ['#contactWhatsapp','#floatingWhatsapp','#sizeHelpWhatsapp','#landingSizeWhatsapp','#footerWhatsapp'].forEach(sel=>{const el=$(sel);if(el){el.href=whatsappUrl(msg);if(sel==='#footerWhatsapp'){const display=state.settings.whatsapp_number||state.settings.support_phone||'';el.textContent=display?`WhatsApp নম্বর: ${display}`:'WhatsApp-এ যোগাযোগ করুন';}el.addEventListener('click',e=>{if(el.href.endsWith('#')){e.preventDefault();toast('WhatsApp নম্বর Admin Panel থেকে সেট করতে হবে।');}});}});
 }
 function renderLookbook(){
   const root=$('#lookbook');
   if(isLanding){renderLandingGallery();return;}
-  const photos=getLookbookImages();
-  if(!photos.length){root.innerHTML='<div class="lookbook-loading">Admin Panel থেকে product image যোগ করুন।</div>';return;}
-  root.innerHTML=photos.map((item,index)=>{
-    const viewNames=['প্রথম ভিউ','আরেকটি ভিউ','পেছনের ভিউ','ডিটেইল ভিউ','কালেকশনের ভিউ'];
-    const productName=item.product.name||'RIHAM Collection';
-    return `<figure class="lookbook-frame">
-      <img src="${esc(item.src)}" alt="${esc(productName)} — ${esc(viewNames[(item.view-1)%viewNames.length])}" ${index>1?'loading="lazy"':'fetchpriority="high"'}>
-      <figcaption class="lookbook-caption"><div><small>RIHAM STORE · ${String(index+1).padStart(2,'0')} / ${photos.length}</small><h2>${esc(productName)}</h2><p>${esc(viewNames[(item.view-1)%viewNames.length])}</p></div><a class="lookbook-order" href="/${encodeURIComponent(item.product.slug||'')}">অর্ডার করুন ↗</a></figcaption>
-    </figure>`;
+  const products=[...state.products].filter(p=>p.active!==false).sort((a,b)=>Number(a.id)-Number(b.id));
+  if(!products.length){root.innerHTML='<div class="lookbook-loading">এখনো কোনো পণ্য যোগ করা হয়নি।</div>';return;}
+  root.innerHTML=products.map((product,index)=>{
+    const src=(product.images||[]).find(Boolean)||'';
+    const inStock=Number(product.stock||0)>0;
+    const slug=encodeURIComponent(product.slug||'');
+    const image=src
+      ? `<img src="${esc(src)}" alt="${esc(product.name||'RIHAM পণ্য')}" ${index===0?'fetchpriority="high"':''} loading="eager" decoding="async">`
+      : '<div class="home-product-no-image"><span>✦</span><b>পণ্যের ছবি যোগ করা হয়নি</b><small>ছবি দেখতে Admin Panel থেকে আপলোড করুন</small></div>';
+    return `<article class="home-product-card" data-reveal>
+      <a class="home-product-photo" href="/${slug}" aria-label="${esc(product.name)} — বিস্তারিত দেখুন">${image}<span class="home-photo-index">${bn(index+1)} / ${bn(products.length)}</span></a>
+      <div class="home-product-info">
+        <div class="home-product-copy"><span class="home-product-kicker">রিহাম স্টোর কালেকশন</span><h2>${esc(product.name||'নতুন পণ্য')}</h2><div class="home-product-price">${priceMarkup(product)}</div></div>
+        <a class="home-product-cta" href="/${slug}">${inStock?'অর্ডার করুন':'বিস্তারিত দেখুন'} <span aria-hidden="true">↗</span></a>
+      </div>
+    </article>`;
   }).join('');
-  root.querySelectorAll('.lookbook-frame img').forEach(img=>img.addEventListener('error',()=>{
-    img.style.opacity='0';img.parentElement.classList.add('image-unavailable');
-    img.parentElement.insertAdjacentHTML('beforeend','<div class="image-error-note">ছবিটি source website থেকে লোড হয়নি</div>');
+  root.querySelectorAll('.home-product-photo img').forEach(img=>img.addEventListener('error',()=>{
+    img.remove();const holder=img.closest('.home-product-photo');holder.classList.add('image-unavailable');
+    holder.insertAdjacentHTML('afterbegin','<div class="home-product-no-image"><span>✦</span><b>ছবিটি লোড করা যায়নি</b><small>বিস্তারিত দেখতে পণ্যের পেজ খুলুন</small></div>');
   },{once:true}));
+  // Reveal each product card only as it enters the viewport; reduced-motion users get a static page.
+  const cards=root.querySelectorAll('[data-reveal]');
+  if(!('IntersectionObserver' in window)||window.matchMedia('(prefers-reduced-motion: reduce)').matches){cards.forEach(card=>card.classList.add('is-visible'));return;}
+  const observer=new IntersectionObserver(entries=>entries.forEach(entry=>{
+    if(entry.isIntersecting){entry.target.classList.add('is-visible');observer.unobserve(entry.target);}
+  }),{rootMargin:'0px 0px -8% 0px',threshold:.08});
+  cards.forEach(card=>observer.observe(card));
 }
+
 function priceMarkup(product){
   const sale=product.sale_price!==null&&product.sale_price!==undefined&&Number(product.sale_price)<Number(product.price);
   return sale?`<strong>${money(product.sale_price)}</strong><del>${money(product.price)}</del><span>${bn(product.discount_percent||Math.round((Number(product.price)-Number(product.sale_price))/Number(product.price)*100))}% ছাড়</span>`:`<strong>${money(product.price)}</strong>`;
@@ -90,9 +92,49 @@ function renderLandingGallery(){
   const root=$('#lookbook'), p=state.selected; if(!root||!p)return;
   const photos=(p.images||[]).filter(Boolean).slice(0,6);
   if(!photos.length){root.innerHTML='<div class="lookbook-loading">এই পণ্যের ছবি এখনো যোগ করা হয়নি।</div>';return;}
-  const price=priceMarkup(p);
-  root.innerHTML=photos.map((src,index)=>`<figure class="lookbook-frame"><img src="${esc(src)}" alt="${esc(p.name)} — ${bn(index+1)} নম্বর ছবি" ${index===0?'fetchpriority="high" loading="eager"':'loading="lazy"'}><figcaption class="lookbook-caption"><div><small>RIHAM কালেকশন · ${String(index+1).padStart(2,'0')} / ${photos.length}</small><h2>${esc(p.name)}</h2><p class="landing-caption-price">${price}</p></div>${Number(p.stock)>0?'<a class="lookbook-order" href="#order">অর্ডার করুন ↗</a>':'<span class="lookbook-order is-disabled">স্টক শেষ</span>'}</figcaption></figure>`).join('');
-  root.querySelectorAll('.lookbook-frame img').forEach(img=>img.addEventListener('error',()=>{img.style.opacity='0';img.parentElement.classList.add('image-unavailable');img.parentElement.insertAdjacentHTML('beforeend','<div class="image-error-note">ছবিটি source website থেকে লোড হয়নি</div>');},{once:true}));
+  const stock=Number(p.stock||0)>0;
+  root.innerHTML=`<div class="landing-gallery-shell">
+    <div class="landing-gallery-viewport" role="region" aria-roledescription="carousel" aria-label="${esc(p.name)}-এর ছবি">
+      <div class="landing-gallery-track">${photos.map((src,index)=>`<figure class="landing-gallery-slide" aria-label="${bn(index+1)} / ${bn(photos.length)}">
+        <img src="${esc(src)}" alt="${esc(p.name)} — ${bn(index+1)} নম্বর ছবি" ${index===0?'fetchpriority="high"':''} loading="eager" decoding="async">
+        <figcaption class="landing-gallery-caption"><div><small>RIHAM STORE · ${bn(index+1)} / ${bn(photos.length)}</small><h2>${esc(p.name)}</h2><div class="landing-caption-price">${priceMarkup(p)}</div></div>${stock?'<a class="lookbook-order" href="#order">অর্ডার করুন ↗</a>':'<span class="lookbook-order is-disabled">স্টক শেষ</span>'}</figcaption>
+      </figure>`).join('')}</div>
+      ${photos.length>1?'<button class="gallery-arrow gallery-prev" type="button" aria-label="আগের ছবি">‹</button><button class="gallery-arrow gallery-next" type="button" aria-label="পরের ছবি">›</button>':''}
+    </div>
+    ${photos.length>1?`<div class="landing-gallery-controls" aria-label="ছবি নির্বাচন">${photos.map((_,i)=>`<button type="button" data-gallery-dot="${i}" aria-label="${bn(i+1)} নম্বর ছবি" class="${i===0?'active':''}"></button>`).join('')}</div>`:''}
+  </div>`;
+  root.querySelectorAll('.landing-gallery-slide img').forEach(img=>img.addEventListener('error',()=>{
+    img.style.visibility='hidden';img.closest('.landing-gallery-slide').classList.add('image-unavailable');
+    img.insertAdjacentHTML('afterend','<div class="image-error-note">ছবিটি লোড করা যায়নি</div>');
+  },{once:true}));
+  if(photos.length>1) startLandingCarousel(root,photos.length);
+}
+function startLandingCarousel(root,count){
+  const track=root.querySelector('.landing-gallery-track'),dots=[...root.querySelectorAll('[data-gallery-dot]')];
+  if(!track||count<2)return;
+  let index=0,timer=null,visible=true,touchStartX=null;
+  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const paint=next=>{
+    index=(next+count)%count;
+    track.style.transform=`translate3d(-${index*100}%,0,0)`;
+    dots.forEach((dot,i)=>{dot.classList.toggle('active',i===index);dot.setAttribute('aria-current',i===index?'true':'false');});
+  };
+  const stop=()=>{if(timer){clearInterval(timer);timer=null;}};
+  const start=()=>{stop();if(!reduced&&visible&&!document.hidden)timer=setInterval(()=>paint(index+1),2800);};
+  root.querySelector('.gallery-prev')?.addEventListener('click',()=>{paint(index-1);start();});
+  root.querySelector('.gallery-next')?.addEventListener('click',()=>{paint(index+1);start();});
+  dots.forEach((dot,i)=>dot.addEventListener('click',()=>{paint(i);start();}));
+  root.addEventListener('mouseenter',stop);root.addEventListener('mouseleave',start);
+  root.addEventListener('focusin',stop);root.addEventListener('focusout',start);
+  root.addEventListener('touchstart',event=>{touchStartX=event.changedTouches[0]?.clientX??null;stop();},{passive:true});
+  root.addEventListener('touchend',event=>{
+    const end=event.changedTouches[0]?.clientX;
+    if(touchStartX!==null&&Number.isFinite(end)&&Math.abs(end-touchStartX)>45)paint(index+(end<touchStartX?1:-1));
+    touchStartX=null;start();
+  },{passive:true});
+  document.addEventListener('visibilitychange',()=>document.hidden?stop():start());
+  if('IntersectionObserver'in window){const observer=new IntersectionObserver(entries=>{visible=entries[0]?.isIntersecting??true;visible?start():stop();},{threshold:.12});observer.observe(root);}
+  start();
 }
 
 function orderableProducts(){
@@ -225,7 +267,7 @@ async function boot(){
     state.settings=settings;
     document.documentElement.style.setProperty('--riham-green',settings.accent_color||'#176b39');
     document.documentElement.style.setProperty('--riham-green-dark',settings.accent_color||'#13592f');
-    if(!isLanding)document.title=`${settings.store_name||'RIHAM'} — বোরকা কালেকশন`;
+    if(!isLanding)document.title=`${settings.store_name||'RIHAM STORE'} — শালীন পোশাকের কালেকশন`;
     document.querySelectorAll('.brand-words b,.footer-brand-line b').forEach(el=>el.textContent='RIHAM STORE');
     const title=settings.hero_title||'শালীনতায় থাকুক নিজস্ব সৌন্দর্য';
     if($('#introTitle')) $('#introTitle').textContent=title.replace(/<[^>]*>/g,'');

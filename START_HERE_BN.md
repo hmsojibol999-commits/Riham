@@ -1,4 +1,4 @@
-# RIHAM Master Demo v8.1 — শুরু করার সহজ নির্দেশনা
+# RIHAM Master Demo v8.3 — শুরু করার সহজ নির্দেশনা
 
 ## ১) লোকাল ডেমো চালানো
 1. ZIP Extract করুন।
@@ -11,11 +11,11 @@
 8. Admin: `http://127.0.0.1:8000/admin`
 
 ## ২) Customer Website-এ পরীক্ষা
-- Homepage-এর একটির পর একটি বড় full-height collection image scroll করে দেখুন; public category menu/section নেই।
+- Homepage-এ প্রতি পণ্যের compact card দেখুন; একটি product-এর জন্য একটিই card থাকবে। Scroll করলে card মসৃণভাবে আসবে।
 - `/about`, `/contact`, `/policy/delivery`, `/policy/return`, `/policy/privacy` পেজ খুলে দেখুন।
-- Homepage-এর Order Form-এ Full Set / Hijab + Niqab, size, quantity, নাম, phone, address, delivery area, COD ও live total পরীক্ষা করুন।
-- Admin → Products-এ product image, price, stock, size ও free-delivery edit করে Home Collection update হচ্ছে কি না দেখুন।
-- শুধু সম্পূর্ণ বোরকা + হিজাব + নিকাব ফুল সেটে Free Delivery; কার্টে অন্য পণ্য যোগ হলে Admin Settings-এর ঢাকা/বাইরের চার্জ প্রযোজ্য হবে।
+- Homepage-এর প্রতিটি “অর্ডার করুন” বাটন সংশ্লিষ্ট পণ্যের নিজের `/{slug}` landing page খোলে। Homepage-এ order form নেই; ওই product page-এর নিচে নিজস্ব COD form আছে।
+- Admin → Products-এ product image, price, stock, size ও free-delivery edit করে Homepage-এর product card এবং landing gallery update হচ্ছে কি না দেখুন। Homepage card প্রথম ছবি ব্যবহার করে; landing page-এর সব ছবি auto-slide করে।
+- শুধু `ফুল সেট` category-তে free delivery flag চালু থাকলে delivery ৳০; এক পণ্যের order-এ অন্য product mix করার cart নেই। অন্য product-এ Admin Settings-এর Dhaka/outside fee প্রযোজ্য হবে।
 
 ## ৩) Admin-এ পণ্য যোগ
 - `পণ্য পরিচালনা` → `নতুন পণ্য`।
@@ -35,8 +35,8 @@
 - SEO: Page Title, Meta Description, Keywords দিন। GA4 ও Meta Pixel ID ঐচ্ছিক; না থাকলে ফাঁকা রাখুন।
 
 ## ৫) ডেলিভারি চার্জ
-- কার্টে শুধু সম্পূর্ণ ফুল সেট থাকলে ডেলিভারি ৳০।
-- শুধু হিজাব, শুধু নিকাব, হিজাব + নিকাব, বা ফুল সেটের সঙ্গে অন্য পণ্য মেশানো থাকলে ঢাকা/বাইরের চার্জ যোগ হবে।
+- শুধু free-delivery flag চালু থাকা সম্পূর্ণ ফুল সেট পণ্যে ডেলিভারি ৳০।
+- শুধু হিজাব, শুধু নিকাব বা হিজাব + নিকাবের মতো non-full-set product-এ ঢাকা/বাইরের চার্জ যোগ হবে।
 - ডিফল্ট: ঢাকার ভিতরে ৳৫০, ঢাকার বাইরে ৳১০০। Admin → Website Settings থেকে বদলানো যাবে।
 - Backend নিজে charge হিসাব করে; browser থেকে পাঠানো delivery fee বিশ্বাস করে না।
 

@@ -58,3 +58,14 @@
 - আলাদা পণ্য ল্যান্ডিং পেজের নিজস্ব অর্ডার ফর্ম ও COD প্রক্রিয়া অপরিবর্তিত রাখা হয়েছে।
 - হেডার ও ফুটারে বড় “R” সিল বাদ দিয়ে পরিমিত “RIHAM STORE” ব্র্যান্ডিং, বাংলা tagline এবং সাজানো footer navigation যোগ হয়েছে।
 - হোমপেজ ও product landing—দুই জায়গাতেই একই footer/contact visual style ব্যবহার করা হয়েছে।
+
+
+## V8.3 — সহজ পণ্য দেখা, অটো-স্লাইড গ্যালারি ও এক Footer
+- Homepage-এ প্রতিটি active product এখন একটি compact card হিসেবে দেখা যায়; শুধু প্রথম ছবি, পণ্যের নাম ও দাম দেখানো হয়। একটি পণ্যের সব ছবি আলাদা করে লম্বা lookbook frame বানায় না।
+- প্রতিটি product card-এর “অর্ডার করুন” লিংক সরাসরি ওই product-এর `/{slug}` page খোলে। Homepage-এ কোনো order form নেই।
+- Scroll করে card viewport-এ এলে নিচ থেকে smooth reveal animation হয়; reduced-motion ব্যবহারকারীদের জন্য animation সম্মান করা হয়।
+- Product landing page-এ সর্বোচ্চ ছয়টি ছবি একটি নির্দিষ্ট মাপের gallery frame-এর মধ্যে একবারে একটি দেখায়। প্রায় ২.৮ সেকেন্ড পরপর slide হয়; arrow, dot ও touch swipe navigation আছে।
+- Homepage ও product landing page-এর Contact/WhatsApp section-এর লেখা এক করা হয়েছে; About/Contact/Policy page-ও একই RIHAM STORE header/footer shell ব্যবহার করে।
+- নতুন `app/static/footer.html` হলো shared footer-এর একমাত্র source; server-side HTML rendering-এ দুই ধরনের storefront page-এ একই footer inject হয়। WhatsApp link settings থেকে চালু হয়; About, Contact, Delivery, Return/Exchange, Privacy ও Admin link এক নিয়মে থাকে।
+- Backend version metadata `8.3.0`; নতুন runtime dependency যোগ হয়নি।
+- Test report: `TEST_REPORT_V8_3_BN.md`; store owner guide: `HOW_TO_USE_V8_3_BN.md`।

@@ -23,7 +23,7 @@ UPLOADS = ROOT / "uploads"
 UPLOADS.mkdir(exist_ok=True)
 
 production = os.getenv("APP_ENV", "development").lower() == "production"
-app = FastAPI(title="RIHAM Store", version="8.1.0", description="RIHAM modest fashion store", docs_url=None if production else "/docs", redoc_url=None if production else "/redoc", openapi_url=None if production else "/openapi.json")
+app = FastAPI(title="RIHAM Store", version="8.3.0", description="RIHAM modest fashion store", docs_url=None if production else "/docs", redoc_url=None if production else "/redoc", openapi_url=None if production else "/openapi.json")
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "" ) or secrets.token_urlsafe(48),
@@ -315,6 +315,10 @@ def html_template(name: str, replacements: dict[str, str]) -> str:
     # One pass prevents an admin-entered value containing another placeholder
     # token from being interpreted as a second template instruction.
     return re.sub(r"__([A-Z0-9_]+)__", lambda match: replacements.get(match.group(1), match.group(0)), content)
+
+def shared_footer_markup() -> str:
+    """One server-rendered footer fragment shared by the home and product pages."""
+    return (STATIC / "footer.html").read_text(encoding="utf-8")
 
 def bn_money(value) -> str:
     try:
@@ -656,6 +660,7 @@ def home(request: Request, db: Session = Depends(get_db)):
         "HOME_OG_IMAGE": html.escape(image_url, quote=True),
         "HOME_OG_URL": html.escape(base + "/", quote=True),
         "HOME_CANONICAL": html.escape(base + "/", quote=True),
+        "SHARED_FOOTER": shared_footer_markup(),
     }
     return HTMLResponse(html_template("index.html", replacements))
 
@@ -681,7 +686,7 @@ def shop_page():
 def information_page(policy_name: str = "about"):
     if policy_name not in {"delivery", "return", "privacy", "about", "contact"}:
         raise HTTPException(404, "পেজটি পাওয়া যায়নি।")
-    return FileResponse(STATIC / "info.html")
+    return HTMLResponse(html_template("info.html", {"SHARED_FOOTER": shared_footer_markup()}))
 
 @app.get("/robots.txt")
 def robots(request: Request):
@@ -699,7 +704,7 @@ def sitemap(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "app": "RIHAM", "version": "8.1.0"}
+    return {"status": "ok", "app": "RIHAM", "version": "8.3.0"}
 
 @app.get("/api/products")
 def public_products(category: str | None = None, search: str | None = None, db: Session = Depends(get_db)):
@@ -1164,5 +1169,6 @@ def product_landing(slug: str, request: Request, db: Session = Depends(get_db)):
         "HEADER_ORDER_HREF": "#landingProductDetails" if int(product.stock or 0) <= 0 else "#order",
         "HEADER_ORDER_CLASS": "stock-unavailable" if int(product.stock or 0) <= 0 else "",
         "HEADER_ORDER_DISABLED": "true" if int(product.stock or 0) <= 0 else "false",
+        "SHARED_FOOTER": shared_footer_markup(),
     }
     return HTMLResponse(html_template("product-landing.html", replacements))

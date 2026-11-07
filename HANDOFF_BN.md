@@ -1,6 +1,6 @@
-# RIHAM v8.1 Project Handoff
+# RIHAM v8.3 Project Handoff
 
-এই ZIP-এ RIHAM-এর V7 lookbook storefront, একই পাতার order form, Admin dashboard, order protection এবং delivery calculation আছে। Admin-এর internal product/category mapping রাখা হয়েছে; customer-facing Homepage-এ category option নেই। v7-এ public homepage-কে বড় বড় vertical collection photo এবং এক পাতার order form দিয়ে নতুনভাবে সাজানো হয়েছে।
+এই ZIP হলো RIHAM v8.3। Homepage-এ প্রতি পণ্যের জন্য compact card থাকে; “অর্ডার করুন” চাপলে সরাসরি ওই পণ্যের slug landing page খোলে। Homepage-এ order form নেই। Product landing page-এ একসঙ্গে একটি ছবি auto-slide হয় এবং নিচে ওই পণ্যের নিজস্ব COD order form থাকে। Admin, order protection, stock, delivery-fee ও Steadfast backend flow আগের মতো রাখা হয়েছে।
 
 ## V7-এ যা বদলেছে
 - ছয়টি demo product, BDT demo price, stock, sizes/colors এবং ১৭টি unique reference product photo URL যোগ করা হয়েছে।
@@ -70,3 +70,14 @@ Local test-এ default Dhaka delivery ৳৫০ এবং outside Dhaka ৳১�
 - হোমপেজে সম্মিলিত অর্ডার ফর্ম নেই; প্রতিটি পণ্যের অর্ডার বাটন সরাসরি নিজস্ব slug landing page খোলে।
 - প্রতিটি product landing page-এ শুধু সংশ্লিষ্ট পণ্যের অর্ডার ফর্ম আছে; COD backend অপরিবর্তিত।
 - হেডার/ফুটারের ব্র্যান্ডিং “RIHAM STORE”; বড় একক R badge বাদ। Footer-এ বাংলা tagline ও নেভিগেশন আছে।
+
+
+## V8.3 — সহজ product browsing, auto gallery ও shared footer
+- Homepage-এর lookbook এখন product-based: প্রতিটি active product-এর জন্য একটিমাত্র card, প্রথম ছবি, নাম ও দাম দেখা যায়। একই product-এর ৩–৬টি ছবি homepage-এ আলাদা লম্বা frame হিসেবে দেখানো হয় না।
+- Card-এর “অর্ডার করুন” বা “বিস্তারিত দেখুন” সরাসরি `/{slug}` খোলে। Homepage-এ সম্মিলিত order form নেই; order শুধু ওই product-এর landing page-এ করা যায়।
+- Homepage product card scroll করে viewport-এ এলে smooth reveal animation হয়। `prefers-reduced-motion` চালু থাকলে animation বন্ধ/সরল হয়।
+- Product landing page-এর ছবিগুলো একটি fixed-height gallery frame-এ থাকে এবং প্রায় ২.৮ সেকেন্ডে slide করে; arrow, dots এবং horizontal touch swipe-ও কাজ করে। ছবি ১টি হলে autoplay control তৈরি হয় না।
+- `app/static/footer.html` হলো একমাত্র shared footer source। Backend homepage ও সব product landing HTML-এ একই footer server-side inject করে; WhatsApp link app.js সেটিংস থেকে পায়।
+- Footer-এ একই Brand, tagline, About, Contact, Delivery, Return/Exchange, Privacy ও Admin link রয়েছে। Contact/WhatsApp section-এর wording-ও দুই storefront page-এ এক করা হয়েছে।
+- FastAPI version ও health metadata 8.3.0 করা হয়েছে। কোনো runtime package যোগ হয়নি।
+- Test: py_compile, node --check, FastAPI TestClient route/product/footer, এবং Chromium in-memory viewport test (390px/1365px) চালানো হয়েছে। Local HTTP browser navigation `ERR_BLOCKED_BY_ADMINISTRATOR` হওয়ায় real URL navigation/Render verification বাকি। বিস্তারিত `TEST_REPORT_V8_3_BN.md`-এ।
