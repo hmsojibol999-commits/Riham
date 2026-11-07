@@ -2,7 +2,7 @@
    Inline scripts are blocked by the site's CSP, so tracking lives in this external file.
    IDs come from Admin → ওয়েবসাইট সেটিংস → SEO ও Analytics. Nothing loads if the IDs are empty/invalid. */
 (function () {
-  var queue = [], ready = false, usePixel = false, useGA = false;
+  var queue = [], ready = false, configured = false, usePixel = false, useGA = false;
 
   function loadPixel(id) {
     if (window.fbq) return;
@@ -28,12 +28,13 @@
 
   function send(name, data) {
     data = data || {};
-    try { if (usePixel && window.fbq) window.fbq('track', name, data); } catch (e) {}
+    try { if (usePixel && window.fbq) window.fbq('track', name === 'GenerateLead' ? 'Lead' : name, data); } catch (e) {}
     try {
       if (useGA && window.gtag) {
-        var map = { Purchase: 'purchase', InitiateCheckout: 'begin_checkout', ViewContent: 'view_item' };
+        var map = { GenerateLead: 'generate_lead', InitiateCheckout: 'begin_checkout', ViewContent: 'view_item' };
         window.gtag('event', map[name] || name, {
           currency: data.currency, value: data.value,
+          transaction_id: data.transaction_id || data.order_invoice,
           items: (data.contents || []).map(function (c) { return { item_id: String(c.id), quantity: c.quantity, price: c.item_price }; })
         });
       }
@@ -46,12 +47,17 @@
     send(name, data);
   };
 
-  fetch('/api/settings').then(function (r) { return r.ok ? r.json() : {}; }).then(function (s) {
-    var px = String(s.meta_pixel_id || '').trim(), ga = String(s.ga4_measurement_id || '').trim();
+  // app.js / info.js pass the settings they already fetched. This avoids
+  // a second /api/settings request on every storefront page.
+  window.rihamConfigureAnalytics = function (settings) {
+    if (configured) return;
+    configured = true;
+    settings = settings || {};
+    var px = String(settings.meta_pixel_id || '').trim();
+    var ga = String(settings.ga4_measurement_id || '').trim();
     if (/^\d{8,20}$/.test(px)) { usePixel = true; loadPixel(px); }
     if (/^G-[A-Za-z0-9]{4,20}$/.test(ga)) { useGA = true; loadGA(ga); }
-  }).catch(function () {}).then(function () {
     ready = true;
     queue.splice(0).forEach(function (q) { send(q[0], q[1]); });
-  });
+  };
 })();

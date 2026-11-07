@@ -1,0 +1,4 @@
+-r requirements.txt
+# Exact versions checked against current PyPI release metadata on 2026-11-07.
+psycopg[binary]==3.3.8
+cloudinary==1.47.0

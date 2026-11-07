@@ -9,3 +9,16 @@
 .product-page-main{padding-top:30px;padding-bottom:80px;min-height:65vh}.breadcrumbs{display:flex;gap:9px;align-items:center;font-size:12px;color:#9a9085;margin-bottom:25px}.breadcrumbs a{color:#6d5c4c}.breadcrumbs strong{font-weight:500;color:#5a5046}.product-page-content .product-detail-layout{grid-template-columns:1fr .9fr;gap:55px}.product-page-content .detail-main-image{height:560px}.product-page-content .detail-copy{padding-top:25px}.product-page-content .detail-copy h1{font-size:36px;line-height:1.25;margin:8px 0}.product-page-content .detail-copy .detail-description{font-size:16px;line-height:1.95;margin:24px 0}.product-page-content .detail-price{font-size:27px}.product-page-content .detail-add{flex-wrap:wrap}.product-page-content .detail-add .primary-btn{flex:1}.product-page-content .detail-add .outline-btn{justify-content:center}.product-page-content .detail-thumbs{gap:11px}.product-page-content .detail-thumb{width:76px;height:76px}.stock-note{color:#7b846c;font-size:12px;margin-top:12px}.product-page-content .detail-copy h1{font-weight:600;color:#332d27}.product-page-content .option-label{font-size:14px;margin-top:22px}@media(max-width:680px){.product-page-main{padding-top:20px;padding-bottom:50px}.breadcrumbs{font-size:11px;flex-wrap:wrap}.product-page-content .product-detail-layout{grid-template-columns:1fr;gap:22px}.product-page-content .detail-main-image{height:390px}.product-page-content .detail-copy{padding-top:0}.product-page-content .detail-copy h1{font-size:27px}.product-page-content .detail-copy .detail-description{font-size:14px;margin:14px 0}.product-page-content .detail-price{font-size:23px}}
 @media(max-width:680px){.search-box.open{position:absolute;right:96px;top:14px;background:#fff;border:1px solid #e8e1d7;padding:5px 9px;z-index:3}.search-box.open input{display:block;width:105px}.hero-upload-control{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:5px}}
 .whatsapp-float{position:fixed;right:22px;bottom:24px;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:#20bd67;color:white;z-index:50;box-shadow:0 7px 22px rgba(21,95,52,.25);transition:transform .2s,box-shadow .2s}.whatsapp-float:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(21,95,52,.3)}.whatsapp-float svg{width:29px;height:29px;fill:white}.whatsapp-float[hidden]{display:none}@media(max-width:680px){.whatsapp-float{right:15px;bottom:18px;width:50px;height:50px}}
+
+
+/* v8.4 hardening overrides */
+@media (max-width: 520px) {
+  input, select, textarea, button, .field-label input, .field-label textarea {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 680px) {
+  .whatsapp-float { bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .toast { bottom: calc(18px + env(safe-area-inset-bottom)); }
+}

@@ -1,29 +1,83 @@
 import os, re, json, time, secrets, hmac, uuid, logging, html
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+from contextlib import asynccontextmanager
 from typing import Optional, Literal
 import requests
 from dotenv import load_dotenv
+load_dotenv()
 from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, update, text, or_, func
 from .database import Base, engine, get_db
 from .models import Product, Category, Order, SiteConfig
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("riham")
+DHAKA_TZ = ZoneInfo("Asia/Dhaka")
+DIGIT_TRANSLATION = str.maketrans(
+    "০১২৩৪৫৬৭৮৯٠١٢٣٤٥٦٧٨٩",
+    "01234567890123456789",
+)
+
+
+def normalize_digits(value: str) -> str:
+    """Convert Bengali/Arabic-Indic numerals to ASCII before validation."""
+    return str(value or "").translate(DIGIT_TRANSLATION)
+
+
+def normalize_bd_phone(value: str) -> str:
+    """Return a canonical 01[3-9]XXXXXXXX Bangladesh mobile number."""
+    digits = re.sub(r"\D", "", normalize_digits(value))
+    if digits.startswith("880") and len(digits) == 13:
+        digits = "0" + digits[3:]
+    elif len(digits) == 10 and digits.startswith("1"):
+        digits = "0" + digits
+    if not re.fullmatch(r"01[3-9]\d{8}", digits):
+        raise ValueError("১১ সংখ্যার সঠিক বাংলাদেশি মোবাইল নম্বর দিন।")
+    return digits
+
+
+def utc_iso(value: datetime | None) -> str | None:
+    """Serialize naive database timestamps as UTC explicitly."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def production_storage_ready() -> bool:
+    required = ("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET")
+    return all(os.getenv(name, "").strip() for name in required)
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "app" / "static"
 UPLOADS = ROOT / "uploads"
 UPLOADS.mkdir(exist_ok=True)
 
 production = os.getenv("APP_ENV", "development").lower() == "production"
-app = FastAPI(title="RIHAM Store", version="8.3.0", description="RIHAM modest fashion store", docs_url=None if production else "/docs", redoc_url=None if production else "/redoc", openapi_url=None if production else "/openapi.json")
+@asynccontextmanager
+async def app_lifespan(application):
+    initialize_app()
+    yield
+
+
+app = FastAPI(
+    title="RIHAM Store",
+    version="8.4.0",
+    description="RIHAM modest fashion store",
+    docs_url=None if production else "/docs",
+    redoc_url=None if production else "/redoc",
+    openapi_url=None if production else "/openapi.json",
+    lifespan=app_lifespan,
+)
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET", "" ) or secrets.token_urlsafe(48),
@@ -41,7 +95,7 @@ CSP = (
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com; "
     "img-src 'self' data: https: https://www.facebook.com; "
-    "connect-src 'self' https://www.google-analytics.com https://region1.google-analytics.com https://www.facebook.com https://graph.facebook.com; "
+    "connect-src 'self' https://www.google-analytics.com https://region1.google-analytics.com https://analytics.google.com https://stats.g.doubleclick.net https://www.facebook.com https://graph.facebook.com; "
     "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 )
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -68,6 +122,10 @@ async def add_security_headers(request: Request, call_next):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     if request.url.path.startswith("/api/admin"):
         response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/static/"):
+        # Revalidate static assets on deploy so an old JS bundle is not paired
+        # with a new backend. Add content-hash filenames before using long TTLs.
+        response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
     return response
 
 LOGIN_ATTEMPTS: dict[str, list[float]] = {}
@@ -126,6 +184,11 @@ class ProductInput(BaseModel):
     active: bool = True
     free_delivery: bool = False
 
+    @field_validator("name", "category", mode="before")
+    @classmethod
+    def _trim_product_text(cls, value):
+        return str(value or "").strip()
+
     @field_validator("slug")
     @classmethod
     def _slug_ok(cls, v):
@@ -150,6 +213,16 @@ class CategoryInput(BaseModel):
     image: str = Field(default="", max_length=500)
     active: bool = True
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _trim_category_name(cls, value):
+        return str(value or "").strip()
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _trim_category_description(cls, value):
+        return str(value or "").strip()
+
     @field_validator("image")
     @classmethod
     def _cat_image_ok(cls, v):
@@ -166,6 +239,7 @@ class CategoryImageInput(BaseModel):
 
 class SettingsInput(BaseModel):
     store_name: str = Field(default="RIHAM", min_length=1, max_length=100)
+
     hero_title: str = Field(default="", max_length=220)
     hero_subtitle: str = Field(default="", max_length=300)
     hero_button: str = Field(default="কালেকশন দেখুন", max_length=80)
@@ -213,6 +287,14 @@ class SettingsInput(BaseModel):
     seo_keywords: str = Field(default="", max_length=600)
     ga4_measurement_id: str = Field(default="", max_length=40)
     meta_pixel_id: str = Field(default="", max_length=40)
+
+    @field_validator("store_name", mode="before")
+    @classmethod
+    def _store_name_ok(cls, value):
+        value = str(value or "").strip()
+        if not value:
+            raise ValueError("স্টোরের নাম খালি রাখা যাবে না।")
+        return value
 
     @field_validator("meta_pixel_id")
     @classmethod
@@ -262,7 +344,17 @@ class OrderInput(BaseModel):
     items: list[OrderItemInput] = Field(min_length=1, max_length=30)
     delivery_area: Literal["dhaka", "outside"] = "outside"
     website: str = Field(default="", max_length=240)  # honeypot; humans leave this blank
-    form_started_at: int = Field(default=0, ge=0)
+    form_started_at: int = Field(default=0, ge=0)  # retained for old clients; not trusted as a clock
+
+    @field_validator("customer_name", "address", "note", mode="before")
+    @classmethod
+    def _trim_order_text(cls, value):
+        return str(value or "").strip()
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _normalize_phone_digits(cls, value):
+        return re.sub(r"\D", "", normalize_digits(str(value or "")))
 
 class StatusInput(BaseModel):
     status: str
@@ -359,77 +451,84 @@ def ensure_config(db: Session) -> SiteConfig:
 
 
 def seed_demo(db: Session):
+    """Seed local preview data once; never mutate existing products or categories."""
     ensure_config(db)
-    # Add any missing default categories on both fresh and upgraded databases.
-    # Reference-site product photos are used as temporary demo assets only.
-    # Replace them with client-owned images before the live launch.
-    safa_gallery = ["https://www.sarrahbd.com/images/safa-set/safa-1.jpeg", "https://www.sarrahbd.com/images/safa-set/safa-2.jpeg", "https://www.sarrahbd.com/images/safa-set/safa-3.jpeg"]
-    sarah_gallery = ["https://www.sarrahbd.com/images/sarah1/sr1.jpg", "https://www.sarrahbd.com/images/sarah1/sr2.jpg", "https://www.sarrahbd.com/images/sarah1/sr3.jpg", "https://www.sarrahbd.com/images/sarah1/sr4.jpg", "https://www.sarrahbd.com/images/sarah1/sr5.jpg"]
-    sarah_v2_gallery = ["https://www.sarrahbd.com/images/sarah2/s1.jpg", "https://www.sarrahbd.com/images/sarah2/s2.jpg", "https://www.sarrahbd.com/images/sarah2/s3.jpg", "https://www.sarrahbd.com/images/sarah2/s4.jpg", "https://www.sarrahbd.com/images/sarah2/s5.jpg"]
-    muslima_gallery = ["https://www.sarrahbd.com/images/muslima-set/ms1.jpg", "https://www.sarrahbd.com/images/muslima-set/ms2.jpg", "https://www.sarrahbd.com/images/muslima-set/ms3.jpg", "https://www.sarrahbd.com/images/muslima-set/ms4.jpg"]
-    photo_safa_1, photo_safa_2, photo_safa_3 = safa_gallery
-    photo_sarah_1, photo_sarah_2 = sarah_gallery[:2]
-    photo_muslima_1, photo_muslima_2 = muslima_gallery[:2]
-    default_categories = [
-        Category(name="বোরকা", description="বোরকার সামনের, পাশের ও পেছনের ভিউ", image=photo_sarah_1),
-        Category(name="হিজাব", description="হিজাবের স্টাইল ও কাপড়ের কাছের ভিউ", image=photo_safa_2),
-        Category(name="নিকাব", description="নিকাবের ডিজাইন ও কভারেজ ভিউ", image=photo_sarah_2),
-        Category(name="ফুল সেট", description="বোরকা + হিজাব + নিকাব একসঙ্গে", image=photo_safa_1),
-        Category(name="হিজাব + নিকাব", description="হিজাব ও নিকাবের কম্বো কালেকশন", image=photo_muslima_1),
+    if db.scalar(select(Category.id).limit(1)) is not None or db.scalar(select(Product.id).limit(1)) is not None:
+        return
+
+    # Reference images are only for local previews. Do not use this seed for a live store.
+    safa_gallery = [
+        "https://www.sarrahbd.com/images/safa-set/safa-1.jpeg",
+        "https://www.sarrahbd.com/images/safa-set/safa-2.jpeg",
+        "https://www.sarrahbd.com/images/safa-set/safa-3.jpeg",
     ]
-    existing_categories = {c.name: c for c in db.scalars(select(Category)).all()}
-    for category in default_categories:
-        existing = existing_categories.get(category.name)
-        if existing is None:
-            db.add(category)
-        elif not existing.image:
-            existing.image = category.image
-    if db.scalar(select(Product).limit(1)) is None:
-        demos = [
-            Product(name="সাফা প্রিমিয়াম ফুল সেট", slug="safa-premium-full-set", category="ফুল সেট", description="বোরকা, হিজাব ও নিকাব—একসঙ্গে একটি সম্পূর্ণ সেট। গ্যালারিতে সামনের, পাশের ও পেছনের ভিউ দেখুন। এটি একটি ডেমো পণ্য; কাপড়, মাপ, রং ও চূড়ান্ত মূল্য ক্লায়েন্টের কাছ থেকে নিশ্চিত করে Admin থেকে আপডেট করুন।", price=2700, sale_price=2400, sizes=["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"], colors=["কালো", "নেভি"], images=safa_gallery, stock=12, featured=True, free_delivery=True),
-            Product(name="সারাহ এলিগ্যান্ট ফুল সেট", slug="sarah-elegant-full-set", category="ফুল সেট", description="মার্জিত ডিজাইনের বোরকা, হিজাব ও নিকাবের ডেমো কম্বিনেশন। একাধিক ভিউ দেখে ডিজাইনটি বুঝে নিন। সঠিক পণ্যের বিবরণ ও মূল্য Admin থেকে পরিবর্তনযোগ্য।", price=2700, sale_price=2400, sizes=["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"], colors=["কালো"], images=sarah_gallery, stock=10, featured=True, free_delivery=True),
-            Product(name="মুসলিমা ডেইলি সেট", slug="muslima-daily-set", category="ফুল সেট", description="দৈনন্দিন ব্যবহারের জন্য বোরকা, হিজাব ও নিকাবের একটি ডেমো সেট। ছবি ও দাম ক্লায়েন্টের চূড়ান্ত তথ্য অনুযায়ী Admin থেকে বদলে নিন।", price=2600, sale_price=2400, sizes=["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"], colors=["কালো"], images=muslima_gallery, stock=9, featured=True, free_delivery=True),
-            Product(name="হুডি হিজাব + নিকাব সেট", slug="hoodie-hijab-niqab-set", category="হিজাব + নিকাব", description="হিজাব ও নিকাব একসঙ্গে নিতে চাইলে এই ডেমো কম্বোটি দেখুন। এটি ফুল সেট নয়, তাই অর্ডারে নির্ধারিত ডেলিভারি চার্জ প্রযোজ্য হবে। চূড়ান্ত দাম ও বিবরণ Admin থেকে সম্পাদনা করুন।", price=1350, sale_price=None, sizes=["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"], colors=["কালো"], images=sarah_v2_gallery, stock=18, featured=True, free_delivery=False),
-            Product(name="প্রিমিয়াম হিজাব", slug="premium-hijab-demo", category="হিজাব", description="হিজাবের স্টাইল ও ফিনিশিং বোঝাতে reference photo যুক্ত করা হয়েছে। এটি ডেমো পণ্য; বাস্তব পণ্যের ছবি, কাপড়, মাপ ও দাম Admin থেকে বসিয়ে দিন।", price=650, sale_price=550, sizes=["ফ্রি সাইজ"], colors=["কালো", "অ্যাশ", "মেরুন"], images=[photo_safa_2, photo_muslima_1], stock=25, featured=False, free_delivery=False),
-            Product(name="বেসিক ব্ল্যাক নিকাব", slug="basic-black-niqab-demo", category="নিকাব", description="নিকাবের ডিটেইল ভিউ দেখানোর জন্য reference photo ব্যবহার করা হয়েছে। বাস্তব পণ্যের ছবি, বিবরণ ও মূল্য Admin থেকে নিশ্চিত করে পরিবর্তন করুন।", price=400, sale_price=None, sizes=["ফ্রি সাইজ"], colors=["কালো"], images=[photo_sarah_2, photo_muslima_2], stock=20, featured=False, free_delivery=False),
-        ]
-        db.add_all(demos)
-    db.flush()
-    # Refresh V6's reference-gallery URLs for existing demo products only when they still use Sarrah source images.
-    # Admin-uploaded images or custom client URLs are preserved.
-    legacy_gallery_by_slug = {
-        "safa-premium-full-set": [photo_safa_1, photo_safa_2, photo_safa_3],
-        "sarah-elegant-full-set": [photo_sarah_1, photo_sarah_2],
-        "muslima-daily-set": [photo_muslima_1, photo_muslima_2],
-        "hoodie-hijab-niqab-set": [photo_sarah_2, photo_muslima_2],
-        "premium-hijab-demo": [photo_safa_2],
-        "basic-black-niqab-demo": [photo_sarah_2],
-    }
-    refreshed_gallery_by_slug = {
-        "safa-premium-full-set": safa_gallery,
-        "sarah-elegant-full-set": sarah_gallery,
-        "muslima-daily-set": muslima_gallery,
-        "hoodie-hijab-niqab-set": sarah_v2_gallery,
-        "premium-hijab-demo": [photo_safa_2, photo_muslima_1],
-        "basic-black-niqab-demo": [photo_sarah_2, photo_muslima_2],
-    }
-    for product_slug, legacy_gallery in legacy_gallery_by_slug.items():
-        product = db.scalar(select(Product).where(Product.slug == product_slug))
-        if product and (product.images or []) == legacy_gallery:
-            product.images = refreshed_gallery_by_slug[product_slug]
-    combo_product = db.scalar(select(Product).where(Product.slug == "hoodie-hijab-niqab-set"))
-    if combo_product and (combo_product.sizes or []) == ["ফ্রি সাইজ"]:
-        combo_product.sizes = ["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"]
-    cfg = ensure_config(db)
-    if str(cfg.store_name or "").strip().lower() in {"reham", "riham"}:
-        cfg.store_name = "RIHAM"
-    if str(cfg.seo_title or "").startswith("REHAM"):
-        cfg.seo_title = cfg.seo_title.replace("REHAM", "RIHAM", 1)
-    if "REHAM" in str(cfg.seo_description or ""):
-        cfg.seo_description = cfg.seo_description.replace("REHAM", "RIHAM")
-    if "REHAM" in str(cfg.about_text or ""):
-        cfg.about_text = cfg.about_text.replace("REHAM", "RIHAM")
+    sarah_gallery = [
+        "https://www.sarrahbd.com/images/sarah1/sr1.jpg",
+        "https://www.sarrahbd.com/images/sarah1/sr2.jpg",
+    ]
+    muslima_gallery = [
+        "https://www.sarrahbd.com/images/muslima-set/ms1.jpg",
+        "https://www.sarrahbd.com/images/muslima-set/ms2.jpg",
+    ]
+    categories = [
+        Category(name="বোরকা", description="বোরকার সামনের, পাশের ও পেছনের ভিউ"),
+        Category(name="হিজাব", description="হিজাবের স্টাইল ও কাপড়ের কাছের ভিউ"),
+        Category(name="নিকাব", description="নিকাবের ডিজাইন ও কভারেজ ভিউ"),
+        Category(name="ফুল সেট", description="বোরকা + হিজাব + নিকাব একসঙ্গে"),
+        Category(name="হিজাব + নিকাব", description="হিজাব ও নিকাবের কম্বো কালেকশন"),
+    ]
+    demos = [
+        Product(
+            name="সাফা প্রিমিয়াম ফুল সেট",
+            slug="safa-premium-full-set",
+            category="ফুল সেট",
+            description="স্থানীয় preview-এর demo পণ্য। লাইভে দেওয়ার আগে বাস্তব পণ্যের ছবি, কাপড়, মাপ, রং ও মূল্য বসান।",
+            price=2700, sale_price=2400,
+            sizes=["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"],
+            colors=["কালো", "নেভি"], images=safa_gallery,
+            stock=12, featured=True, free_delivery=True,
+        ),
+        Product(
+            name="সারাহ এলিগ্যান্ট ফুল সেট",
+            slug="sarah-elegant-full-set",
+            category="ফুল সেট",
+            description="স্থানীয় preview-এর demo পণ্য। লাইভে দেওয়ার আগে বাস্তব পণ্যের ছবি, বিবরণ ও মূল্য বসান।",
+            price=2700, sale_price=2400,
+            sizes=["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"],
+            colors=["কালো"], images=sarah_gallery,
+            stock=10, featured=True, free_delivery=True,
+        ),
+        Product(
+            name="মুসলিমা ডেইলি সেট",
+            slug="muslima-daily-set",
+            category="ফুল সেট",
+            description="স্থানীয় preview-এর demo পণ্য। লাইভে দেওয়ার আগে বাস্তব পণ্যের ছবি, বিবরণ ও মূল্য বসান।",
+            price=2600, sale_price=2400,
+            sizes=["৪৮", "৫০", "৫২", "৫৪", "৫৬", "৫৮"],
+            colors=["কালো"], images=muslima_gallery,
+            stock=9, featured=True, free_delivery=True,
+        ),
+        Product(
+            name="প্রিমিয়াম হিজাব",
+            slug="premium-hijab-demo",
+            category="হিজাব",
+            description="স্থানীয় preview-এর demo পণ্য। লাইভে দেওয়ার আগে বাস্তব পণ্যের ছবি, বিবরণ ও মূল্য বসান।",
+            price=650, sale_price=550,
+            sizes=["ফ্রি সাইজ"], colors=["কালো", "অ্যাশ", "মেরুন"],
+            images=[safa_gallery[1]], stock=25,
+        ),
+        Product(
+            name="বেসিক ব্ল্যাক নিকাব",
+            slug="basic-black-niqab-demo",
+            category="নিকাব",
+            description="স্থানীয় preview-এর demo পণ্য। লাইভে দেওয়ার আগে বাস্তব পণ্যের ছবি, বিবরণ ও মূল্য বসান।",
+            price=400, sizes=["ফ্রি সাইজ"], colors=["কালো"],
+            images=[sarah_gallery[1]], stock=20,
+        ),
+    ]
+    db.add_all(categories + demos)
     db.commit()
+
 
 WEAK_KEYS = ("demo-only", "change-me", "replace-with", "generate-a-long", "password", "12345678")
 
@@ -441,10 +540,18 @@ def check_secrets():
     weak_secret = len(secret) < 32 or any(w in secret.lower() for w in WEAK_KEYS)
     if production:
         problems = []
+        database_url = os.getenv("DATABASE_URL", "").strip()
+        public_url = os.getenv("PUBLIC_SITE_URL", "").strip()
         if weak_key:
             problems.append("ADMIN_ACCESS_KEY (কমপক্ষে ১২ অক্ষরের শক্ত ও ইউনিক কী দিন)")
         if weak_secret:
             problems.append("SESSION_SECRET (কমপক্ষে ৩২ অক্ষরের random মান দিন)")
+        if not database_url or database_url.startswith("sqlite"):
+            problems.append("DATABASE_URL (production-এ persistent PostgreSQL URL বাধ্যতামূলক; SQLite fallback বন্ধ)")
+        if not public_url.startswith("https://"):
+            problems.append("PUBLIC_SITE_URL (নিজস্ব canonical https:// domain দিন)")
+        if os.getenv("COOKIE_SECURE", "false").lower() != "true":
+            problems.append("COOKIE_SECURE=true (HTTPS admin session cookie)")
         if problems:
             raise RuntimeError("Production শুরু করা যাবে না। ঠিক করুন: " + "; ".join(problems))
     elif not key:
@@ -500,10 +607,6 @@ def migrate_v4():
                 conn.execute(text("ALTER TABLE site_config ADD COLUMN footer_text VARCHAR(300) DEFAULT ''"))
             if "accent_color" not in cols:
                 conn.execute(text("ALTER TABLE site_config ADD COLUMN accent_color VARCHAR(7) DEFAULT '#3f5a3b'"))
-            # Rename the old default brand and switch its former default photo theme
-            # to the clean white storefront requested for RIHAM.
-            conn.execute(text("UPDATE site_config SET store_name='RIHAM' WHERE lower(store_name) IN ('reham','riham')"))
-            conn.execute(text("UPDATE site_config SET theme='white' WHERE theme='photo' AND lower(store_name)='riham'"))
 
 
 def migrate_v5():
@@ -586,15 +689,34 @@ def migrate_v6_slugs():
         db.commit()
 
 
-@app.on_event("startup")
-def startup():
+def migrate_v7_courier_columns():
+    """Add missing courier columns to databases created by earlier releases."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if "orders" not in set(inspector.get_table_names()):
+        return
+    columns = {column["name"] for column in inspector.get_columns("orders")}
+    additions = {
+        "courier_consignment_id": "VARCHAR(80) DEFAULT ''",
+        "courier_tracking_code": "VARCHAR(80) DEFAULT ''",
+        "courier_status": "VARCHAR(80) DEFAULT ''",
+    }
+    with engine.begin() as conn:
+        for name, ddl in additions.items():
+            if name not in columns:
+                conn.execute(text(f"ALTER TABLE orders ADD COLUMN {name} {ddl}"))
+
+
+def initialize_app():
     check_secrets()
     migrate_v4()
     migrate_v5()
     Base.metadata.create_all(bind=engine)
     migrate_v6_slugs()
-    with next(get_db()) as db:
-        seed_demo(db)
+    migrate_v7_courier_columns()
+    if not production and os.getenv("SEED_DEMO_DATA", "true").lower() == "true":
+        with next(get_db()) as db:
+            seed_demo(db)
     if not os.getenv("SESSION_SECRET"):
         log.warning("SESSION_SECRET is not set. A temporary session secret will be used; sessions reset on restart.")
 
@@ -602,6 +724,12 @@ def startup():
 def require_admin(request: Request):
     if request.session.get("admin") is not True:
         raise HTTPException(status_code=401, detail="প্রথমে Store Access দিয়ে লগইন করুন।")
+
+
+def is_category_visible(db: Session, product: Product) -> bool:
+    """An inactive category hides its products; uncategorized legacy names remain visible."""
+    active_value = db.scalar(select(Category.active).where(Category.name == product.category))
+    return active_value is None or bool(active_value)
 
 
 def product_dict(p: Product):
@@ -613,7 +741,7 @@ def product_dict(p: Product):
         "description": p.description, "size_guide": getattr(p, "size_guide", "") or "", "price": p.price, "sale_price": p.sale_price,
         "discount_percent": discount, "sizes": p.sizes or [], "colors": p.colors or [],
         "images": p.images or [], "stock": p.stock, "featured": p.featured,
-        "active": p.active, "free_delivery": is_free_delivery_full_set(p), "created_at": p.created_at.isoformat() if p.created_at else None,
+        "active": p.active, "free_delivery": is_free_delivery_full_set(p), "created_at": utc_iso(p.created_at),
     }
 
 
@@ -640,23 +768,37 @@ def order_dict(o: Order):
             "delivery_fee": o.delivery_fee, "total": o.total, "delivery_area": getattr(o, "delivery_area", "outside"),
             "fraud_flag": bool(getattr(o, "fraud_flag", False)), "fraud_reason": getattr(o, "fraud_reason", ""), "status": o.status,
             "courier_consignment_id": o.courier_consignment_id, "courier_tracking_code": o.courier_tracking_code,
-            "courier_status": o.courier_status, "created_at": o.created_at.isoformat() if o.created_at else None}
+            "courier_status": o.courier_status, "created_at": utc_iso(o.created_at)}
+
+
+
+def public_order_receipt(o: Order):
+    """Minimal receipt payload; never expose phone/address or internal risk-review fields."""
+    return {
+        "invoice": o.invoice,
+        "subtotal": o.subtotal,
+        "delivery_fee": o.delivery_fee,
+        "total": o.total,
+        "status": o.status,
+        "created_at": utc_iso(o.created_at),
+    }
 
 @app.get("/")
 def home(request: Request, db: Session = Depends(get_db)):
     cfg = ensure_config(db)
     base = site_base_url(request)
-    first = db.scalar(select(Product).where(Product.active.is_(True)).order_by(Product.id.asc()))
-    image = next((str(item).strip() for item in (first.images or []) if str(item).strip()), "") if first else ""
-    image = image or (cfg.hero_image or "")
+    first = db.scalar(select(Product).where(Product.active.is_(True), ~Product.category.in_(select(Category.name).where(Category.active.is_(False)))).order_by(Product.featured.desc(), Product.id.desc()))
+    image = (cfg.hero_image or "").strip()
+    image = image or (next((str(item).strip() for item in (first.images or []) if str(item).strip()), "") if first else "")
     title = cfg.seo_title or f"{cfg.store_name or 'RIHAM'} | বোরকা, হিজাব ও নিকাব"
     description = cfg.seo_description or "বোরকা, হিজাব ও নিকাবের মার্জিত কালেকশন। সারা বাংলাদেশে ক্যাশ অন ডেলিভারি।"
+    description_meta = re.sub(r"\s+", " ", description).strip()[:160]
     image_url = absolute_site_url(image, base)
     replacements = {
         "HOME_TITLE": html.escape(title, quote=True),
-        "HOME_DESCRIPTION": html.escape(description, quote=True),
+        "HOME_DESCRIPTION": html.escape(description_meta, quote=True),
         "HOME_OG_TITLE": html.escape(title, quote=True),
-        "HOME_OG_DESCRIPTION": html.escape(description, quote=True),
+        "HOME_OG_DESCRIPTION": html.escape(description_meta, quote=True),
         "HOME_OG_IMAGE": html.escape(image_url, quote=True),
         "HOME_OG_URL": html.escape(base + "/", quote=True),
         "HOME_CANONICAL": html.escape(base + "/", quote=True),
@@ -671,7 +813,7 @@ def admin_page():
 @app.get("/product/{product_id}")
 def product_page(product_id: int, db: Session = Depends(get_db)):
     product = db.get(Product, product_id)
-    if not product or not product.active:
+    if not product or not product.active or not is_category_visible(db, product):
         return HTMLResponse((STATIC / "not-found.html").read_text(encoding="utf-8"), status_code=404)
     return RedirectResponse(url=f"/{product.slug}", status_code=301)
 
@@ -703,29 +845,35 @@ def sitemap(request: Request, db: Session = Depends(get_db)):
     return Response(xml, media_type="application/xml")
 
 @app.get("/api/health")
-def health():
-    return {"status": "ok", "app": "RIHAM", "version": "8.3.0"}
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        log.exception("Health check database query failed")
+        raise HTTPException(503, "database unavailable")
+    return {"status": "ok", "database": "ok", "app": "RIHAM", "version": "8.4.0"}
 
 @app.get("/api/products")
 def public_products(category: str | None = None, search: str | None = None, db: Session = Depends(get_db)):
-    q = select(Product).where(Product.active.is_(True))
+    q = select(Product).where(Product.active.is_(True), ~Product.category.in_(select(Category.name).where(Category.active.is_(False))))
     if category:
         q = q.where(Product.category == category)
     if search:
-        q = q.where(Product.name.ilike(f"%{search[:80]}%"))
+        term = search[:80].replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        q = q.where(Product.name.ilike(f"%{term}%", escape="!"))
     return [product_dict(p) for p in db.scalars(q.order_by(Product.featured.desc(), Product.id.desc())).all()]
 
 @app.get("/api/products/by-slug/{slug}")
 def public_product_by_slug(slug: str, db: Session = Depends(get_db)):
     p = db.scalar(select(Product).where(Product.slug == slug))
-    if not p or not p.active:
+    if not p or not p.active or not is_category_visible(db, p):
         raise HTTPException(404, "পণ্যটি পাওয়া যায়নি।")
     return product_dict(p)
 
 @app.get("/api/products/{product_id}")
 def public_product(product_id: int, db: Session = Depends(get_db)):
     p = db.get(Product, product_id)
-    if not p or not p.active:
+    if not p or not p.active or not is_category_visible(db, p):
         raise HTTPException(404, "পণ্যটি পাওয়া যায়নি।")
     return product_dict(p)
 
@@ -739,87 +887,146 @@ def public_settings(db: Session = Depends(get_db)):
 
 @app.post("/api/orders")
 def create_order(payload: OrderInput, request: Request, db: Session = Depends(get_db)):
-    # Simple anti-bot protections: hidden honeypot + minimum form completion time.
+    # A server-side timer cannot trust the customer's device clock. Keep the
+    # honeypot and server-side rate limits; ignore the legacy client timestamp.
     if payload.website.strip():
         raise HTTPException(400, "অর্ডারটি গ্রহণ করা যায়নি। আবার চেষ্টা করুন।")
-    if payload.form_started_at and int(time.time() * 1000) - payload.form_started_at < 1800:
-        raise HTTPException(400, "ফর্মটি খুব দ্রুত পাঠানো হয়েছে। তথ্য যাচাই করে আবার চেষ্টা করুন।")
+
+    try:
+        phone_digits = normalize_bd_phone(payload.phone)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    stock_needed: dict[int, int] = {}
+    items, subtotal = [], 0.0
+    qualifies_for_free_delivery = bool(payload.items)
+    product_snapshots: dict[int, Product] = {}
+
+    # Validate all customer-selected options and calculate prices server-side.
+    for line in payload.items:
+        stock_needed[line.product_id] = stock_needed.get(line.product_id, 0) + line.quantity
+        product = db.get(Product, line.product_id)
+        if not product or not product.active or not is_category_visible(db, product):
+            raise HTTPException(400, "কার্টে থাকা একটি পণ্য এখন পাওয়া যাচ্ছে না।")
+        if product.sizes and line.size not in product.sizes:
+            raise HTTPException(400, f"{product.name} পণ্যের জন্য সঠিক সাইজ নির্বাচন করুন।")
+        if product.colors and line.color not in product.colors:
+            raise HTTPException(400, f"{product.name} পণ্যের জন্য সঠিক রং নির্বাচন করুন।")
+        effective_price = product.sale_price if product.sale_price is not None and product.sale_price < product.price else product.price
+        unit = float(effective_price)
+        subtotal += unit * line.quantity
+        qualifies_for_free_delivery = qualifies_for_free_delivery and is_free_delivery_full_set(product)
+        items.append({
+            "product_id": product.id,
+            "name": product.name,
+            "quantity": line.quantity,
+            "unit_price": unit,
+            "size": line.size,
+            "color": line.color,
+        })
+        product_snapshots[product.id] = product
+
+    # Avoid duplicate submissions without revealing a previous invoice number.
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff = now_naive - timedelta(minutes=10)
+    recent = db.scalars(
+        select(Order).where(
+            Order.phone == phone_digits,
+            Order.created_at >= cutoff,
+            Order.status.in_(["new", "confirmed", "processing"]),
+        ).order_by(Order.created_at.desc()).limit(12)
+    ).all()
+    requested_signature = sorted(
+        (x["product_id"], x["quantity"], x["size"], x["color"]) for x in items
+    )
+    for recent_order in recent:
+        previous_signature = sorted(
+            (int(x["product_id"]), int(x["quantity"]), x.get("size", ""), x.get("color", ""))
+            for x in recent_order.items
+        )
+        if previous_signature == requested_signature:
+            raise HTTPException(409, "এই নম্বর থেকে একই অর্ডারটি ইতিমধ্যে নেওয়া হয়েছে। প্রয়োজনে আমাদের সঙ্গে যোগাযোগ করুন।")
+
+    # Only validated, non-duplicate submissions consume rate-limit quota.
     ip = client_ip(request)
     if rate_limited(ORDER_ATTEMPTS, ip, ORDER_LIMIT, ORDER_WINDOW):
         raise HTTPException(429, "এই নেটওয়ার্ক থেকে অনেক অর্ডার পাঠানো হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।")
-    phone_digits = re.sub(r"\D", "", payload.phone)
-    if phone_digits.startswith("880") and len(phone_digits) == 13:
-        phone_digits = "0" + phone_digits[3:]
-    elif len(phone_digits) == 10 and phone_digits.startswith("1"):
-        phone_digits = "0" + phone_digits
-    if len(phone_digits) != 11 or not phone_digits.startswith("01"):
-        raise HTTPException(400, "১১ সংখ্যার সঠিক বাংলাদেশি মোবাইল নম্বর দিন।")
     if rate_limited(PHONE_ORDER_ATTEMPTS, phone_digits, 4, 3600):
         raise HTTPException(429, "এই নম্বর থেকে এক ঘণ্টায় অনেক অর্ডার এসেছে। ফোনে যোগাযোগ করে অর্ডার নিশ্চিত করুন।")
 
-    stock_needed = {}
-    items, subtotal = [], 0.0
-    qualifies_for_free_delivery = bool(payload.items)
-    for line in payload.items:
-        stock_needed[line.product_id] = stock_needed.get(line.product_id, 0) + line.quantity
-        p = db.get(Product, line.product_id)
-        if not p or not p.active:
-            raise HTTPException(400, "কার্টে থাকা একটি পণ্য এখন পাওয়া যাচ্ছে না।")
-        if p.sizes and line.size not in p.sizes:
-            raise HTTPException(400, f"{p.name} পণ্যের জন্য সঠিক সাইজ নির্বাচন করুন।")
-        if p.colors and line.color not in p.colors:
-            raise HTTPException(400, f"{p.name} পণ্যের জন্য সঠিক রং নির্বাচন করুন।")
-        effective_price = p.sale_price if p.sale_price is not None and p.sale_price < p.price else p.price
-        unit = float(effective_price)
-        subtotal += unit * line.quantity
-        qualifies_for_free_delivery = qualifies_for_free_delivery and is_free_delivery_full_set(p)
-        items.append({"product_id": p.id, "name": p.name, "quantity": line.quantity, "unit_price": unit,
-                      "size": line.size, "color": line.color})
+    # Atomic conditional UPDATE is the inventory guard. Unlike a Python-side
+    # read/modify/write, this also protects SQLite deployments where FOR UPDATE
+    # is ignored. A failed update rolls back every stock deduction in this order.
+    try:
+        for product_id, quantity in stock_needed.items():
+            result = db.execute(
+                update(Product)
+                .where(
+                    Product.id == product_id,
+                    Product.active.is_(True),
+                    Product.stock >= quantity,
+                )
+                .values(stock=Product.stock - quantity)
+                .execution_options(synchronize_session=False)
+            )
+            if result.rowcount != 1:
+                db.rollback()
+                product = product_snapshots.get(product_id)
+                name = product.name if product else "পণ্যটি"
+                raise HTTPException(409, f"{name} পণ্যের স্টক শেষ বা পরিবর্তিত হয়েছে। পেজ রিফ্রেশ করে আবার চেষ্টা করুন।")
 
-    # Avoid creating the same order twice from double taps or repeated bot submissions.
-    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
-    cutoff = now_naive - timedelta(minutes=10)
-    recent = db.scalars(select(Order).where(Order.phone == phone_digits, Order.created_at >= cutoff,
-                            Order.status.in_(["new", "confirmed", "processing"])).order_by(Order.created_at.desc()).limit(12)).all()
-    requested_signature = sorted((x["product_id"], x["quantity"], x["size"], x["color"]) for x in items)
-    for recent_order in recent:
-        previous_signature = sorted((int(x["product_id"]), int(x["quantity"]), x.get("size", ""), x.get("color", "")) for x in recent_order.items)
-        if previous_signature == requested_signature:
-            raise HTTPException(409, f"এই নম্বর থেকে একই অর্ডারটি আগেই নেওয়া হয়েছে। আপনার অর্ডার নম্বর: {recent_order.invoice}")
+        cfg = ensure_config(db)
+        if qualifies_for_free_delivery:
+            fee = 0.0
+        elif payload.delivery_area == "dhaka":
+            fee = float(cfg.dhaka_delivery_fee)
+        else:
+            fee = float(cfg.outside_delivery_fee)
 
-    locked_products = {}
-    for pid, qty in stock_needed.items():
-        p = db.scalar(select(Product).where(Product.id == pid).with_for_update())
-        if not p or p.stock < qty:
-            name = p.name if p else "পণ্যটি"
-            raise HTTPException(400, f"{name} পণ্যের পর্যাপ্ত স্টক নেই।")
-        locked_products[pid] = p
+        # A repeat phone number is a manual-confirmation hint, not proof of fraud.
+        hour_cutoff = now_naive - timedelta(hours=1)
+        same_phone_recent = db.scalar(
+            select(Order.id).where(
+                Order.phone == phone_digits,
+                Order.created_at >= hour_cutoff,
+            ).limit(1)
+        )
+        repeat_review = same_phone_recent is not None
+        review_reason = (
+            "একই নম্বর থেকে গত ১ ঘণ্টায় আরেকটি অর্ডার এসেছে—কুরিয়ারে পাঠানোর আগে ফোনে নিশ্চিত করুন।"
+            if repeat_review else ""
+        )
 
-    cfg = ensure_config(db)
-    if qualifies_for_free_delivery:
-        fee = 0.0
-    elif payload.delivery_area == "dhaka":
-        fee = float(cfg.dhaka_delivery_fee)
-    else:
-        fee = float(cfg.outside_delivery_fee)
-
-    # Repeat orders from the same phone are not automatically rejected, but are marked for human confirmation.
-    hour_cutoff = now_naive - timedelta(hours=1)
-    same_phone_recent = db.scalar(select(Order.id).where(Order.phone == phone_digits, Order.created_at >= hour_cutoff).limit(1))
-    fraud_flag = same_phone_recent is not None
-    fraud_reason = "এই নম্বর থেকে গত ১ ঘণ্টায় আরেকটি অর্ডার এসেছে—কুরিয়ারে পাঠানোর আগে ফোনে নিশ্চিত করুন।" if fraud_flag else ""
-
-    invoice = f"RIH-{datetime.now().strftime('%y%m%d')}-{secrets.token_hex(3).upper()}"
-    order = Order(invoice=invoice, customer_name=payload.customer_name.strip(), phone=phone_digits,
-                  address=payload.address.strip(), note=payload.note.strip(), items=items,
-                  subtotal=round(subtotal, 2), delivery_fee=fee, total=round(subtotal + fee, 2),
-                  delivery_area=payload.delivery_area, fraud_flag=fraud_flag, fraud_reason=fraud_reason, status="new")
-    db.add(order)
-    for pid, qty in stock_needed.items():
-        locked_products[pid].stock -= qty
-    db.commit()
-    db.refresh(order)
-    return {"message": "আপনার অর্ডারটি গ্রহণ করা হয়েছে।", "order": order_dict(order)}
+        invoice_date = datetime.now(DHAKA_TZ).strftime("%y%m%d")
+        invoice = f"RIH-{invoice_date}-{secrets.token_hex(3).upper()}"
+        order = Order(
+            invoice=invoice,
+            customer_name=payload.customer_name,
+            phone=phone_digits,
+            address=payload.address,
+            note=payload.note,
+            items=items,
+            subtotal=round(subtotal, 2),
+            delivery_fee=fee,
+            total=round(subtotal + fee, 2),
+            delivery_area=payload.delivery_area,
+            fraud_flag=repeat_review,
+            fraud_reason=review_reason,
+            status="new",
+        )
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return {
+            "message": "আপনার অর্ডারটি গ্রহণ করা হয়েছে।",
+            "order": public_order_receipt(order),
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        log.exception("Order creation failed; transaction rolled back")
+        raise HTTPException(500, "অর্ডারটি সংরক্ষণ করা যায়নি। কিছুক্ষণ পরে আবার চেষ্টা করুন।")
 
 
 @app.post("/api/admin/login")
@@ -1019,7 +1226,9 @@ def upload_images(request: Request, files: list[UploadFile] = File(...)):
     if not files or len(files) > 6:
         raise HTTPException(400, "একবারে ১ থেকে ৬টি ছবি আপলোড করুন।")
     urls = []
-    cloud_ready = all(os.getenv(k) for k in ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"])
+    cloud_ready = production_storage_ready()
+    if production and not cloud_ready:
+        raise HTTPException(503, "Live সাইটে ছবি সংরক্ষণের জন্য Cloudinary সেটিংস প্রয়োজন। স্থানীয় uploads production-এ ব্যবহার করা হবে না।")
     for f in files:
         data = f.file.read(8 * 1024 * 1024 + 1)
         if len(data) > 8 * 1024 * 1024:
@@ -1051,70 +1260,229 @@ def admin_orders(request: Request, db: Session = Depends(get_db)):
 @app.put("/api/admin/orders/{order_id}/status")
 def update_order_status(order_id: int, payload: StatusInput, request: Request, db: Session = Depends(get_db)):
     require_admin(request)
-    if payload.status not in STATUSES: raise HTTPException(400, "অবৈধ order status।")
-    o = db.get(Order, order_id)
-    if not o: raise HTTPException(404, "অর্ডার পাওয়া যায়নি।")
-    if o.status != "cancelled" and payload.status == "cancelled":
-        for item in o.items:
-            p = db.get(Product, item["product_id"])
-            if p: p.stock += int(item["quantity"])
-    elif o.status == "cancelled" and payload.status != "cancelled":
-        required = {}
-        for item in o.items:
-            pid = int(item["product_id"])
-            required[pid] = required.get(pid, 0) + int(item["quantity"])
-        for pid, qty in required.items():
-            p = db.get(Product, pid)
-            if not p or p.stock < qty:
-                raise HTTPException(400, "এই অর্ডারটি আবার চালু করার মতো পর্যাপ্ত স্টক নেই।")
-        for pid, qty in required.items():
-            db.get(Product, pid).stock -= qty
-    o.status = payload.status
-    db.commit(); db.refresh(o)
-    return order_dict(o)
+    if payload.status not in STATUSES:
+        raise HTTPException(400, "অবৈধ order status।")
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "অর্ডার পাওয়া যায়নি।")
+    old_status, new_status = order.status, payload.status
+    if old_status == new_status:
+        return order_dict(order)
+
+    allowed = {
+        "new": {"confirmed", "cancelled"},
+        "confirmed": {"processing", "cancelled"},
+        "processing": {"shipped", "delivered", "cancelled"},
+        "shipped": {"delivered"},
+        "delivered": set(),
+        "cancelled": {"new"},
+    }
+    if new_status not in allowed.get(old_status, set()):
+        raise HTTPException(409, f"{old_status} থেকে {new_status} স্ট্যাটাসে পরিবর্তন অনুমোদিত নয়।")
+    if new_status == "cancelled" and (old_status in {"shipped", "delivered"} or order.courier_consignment_id or order.courier_status in {"submitting", "unknown"}):
+        raise HTTPException(409, "কুরিয়ারে পাঠানো অর্ডার সরাসরি বাতিল করা যাবে না। আগে কুরিয়ারের সঙ্গে সমন্বয় করুন।")
+
+    try:
+        transition = db.execute(
+            update(Order)
+            .where(Order.id == order_id, Order.status == old_status)
+            .values(status=new_status)
+            .execution_options(synchronize_session=False)
+        )
+        if transition.rowcount != 1:
+            db.rollback()
+            raise HTTPException(409, "অর্ডারের স্ট্যাটাস অন্য Admin পরিবর্তন করেছেন। তালিকা রিফ্রেশ করে আবার দেখুন।")
+
+        if new_status == "cancelled":
+            for item in order.items:
+                product = db.get(Product, int(item["product_id"]))
+                if product:
+                    db.execute(
+                        update(Product)
+                        .where(Product.id == product.id)
+                        .values(stock=Product.stock + int(item["quantity"]))
+                        .execution_options(synchronize_session=False)
+                    )
+        elif old_status == "cancelled":
+            needed: dict[int, int] = {}
+            for item in order.items:
+                product_id = int(item["product_id"])
+                needed[product_id] = needed.get(product_id, 0) + int(item["quantity"])
+            for product_id, quantity in needed.items():
+                result = db.execute(
+                    update(Product)
+                    .where(Product.id == product_id, Product.active.is_(True), Product.stock >= quantity)
+                    .values(stock=Product.stock - quantity)
+                    .execution_options(synchronize_session=False)
+                )
+                if result.rowcount != 1:
+                    db.rollback()
+                    raise HTTPException(409, "এই অর্ডারটি আবার চালু করার মতো পর্যাপ্ত স্টক নেই।")
+        db.commit()
+        db.refresh(order)
+        return order_dict(order)
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        log.exception("Order status update failed")
+        raise HTTPException(500, "অর্ডারের স্ট্যাটাস আপডেট করা যায়নি।")
+
 
 @app.post("/api/admin/orders/{order_id}/steadfast")
 def send_to_steadfast(order_id: int, request: Request, db: Session = Depends(get_db)):
     require_admin(request)
-    o = db.get(Order, order_id)
-    if not o: raise HTTPException(404, "অর্ডার পাওয়া যায়নি।")
-    if o.status != "confirmed":
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "অর্ডার পাওয়া যায়নি।")
+    if order.status != "confirmed":
         raise HTTPException(400, "কুরিয়ারে পাঠানোর আগে কাস্টমারের সঙ্গে ফোনে কথা বলে অর্ডারটি Confirm করুন।")
+    if order.courier_consignment_id or order.courier_tracking_code or order.courier_status in {"submitting", "unknown"}:
+        raise HTTPException(409, "এই অর্ডারের courier request আগেই শুরু হয়েছে বা result অনিশ্চিত। Merchant panel-এ invoice মিলিয়ে নিন; যাচাই ছাড়া আবার পাঠাবেন না।")
+
     api_key = os.getenv("STEADFAST_API_KEY", "")
     secret_key = os.getenv("STEADFAST_SECRET_KEY", "")
     if not api_key or not secret_key:
-        raise HTTPException(400, "Steadfast API credentials এখনো যোগ করা হয়নি। ক্লায়েন্টের credentials পাওয়ার পর Environment Variables-এ দিন।")
+        raise HTTPException(400, "Steadfast API credentials এখনো যোগ করা হয়নি।")
     base = os.getenv("STEADFAST_BASE_URL", "https://portal.steadfast.com.bd/api/v1").rstrip("/")
+    if len(order.address or "") > 250:
+        raise HTTPException(400, "Steadfast-এর জন্য ঠিকানা ২৫০ অক্ষরের বেশি। Admin থেকে ঠিকানা সংক্ষিপ্ত করে সেভ করুন।")
     payload = {
-        "invoice": o.invoice,
-        "recipient_name": o.customer_name[:100],
-        "recipient_phone": re.sub(r"\D", "", o.phone)[-11:],
-        "recipient_address": o.address[:250],
-        "cod_amount": round(o.total, 2),
-        "note": (o.note or "")[:200],
-        "item_description": ", ".join(f"{x['name']} x{x['quantity']}" for x in o.items)[:250],
-        "total_lot": sum(int(x["quantity"]) for x in o.items),
+        "invoice": order.invoice,
+        "recipient_name": order.customer_name[:100],
+        "recipient_phone": normalize_bd_phone(order.phone),
+        "recipient_address": order.address[:250],
+        "cod_amount": round(order.total, 2),
+        "note": (order.note or "")[:200],
+        "item_description": ", ".join(f"{item['name']} x{item['quantity']}" for item in order.items)[:250],
+        "total_lot": sum(int(item["quantity"]) for item in order.items),
         "delivery_type": 0,
     }
+
+    # Claim the send operation atomically. A Python-side check followed by a
+    # plain assignment is racy: two admin requests can both pass the check.
+    claim = db.execute(
+        update(Order)
+        .where(
+            Order.id == order_id,
+            Order.status == "confirmed",
+            or_(Order.courier_consignment_id.is_(None), Order.courier_consignment_id == ""),
+            or_(Order.courier_tracking_code.is_(None), Order.courier_tracking_code == ""),
+            func.coalesce(Order.courier_status, "").notin_(["submitting", "unknown"]),
+        )
+        .values(courier_status="submitting")
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    if claim.rowcount != 1:
+        raise HTTPException(409, "অন্য Admin এই অর্ডারের courier request শুরু করেছেন বা অর্ডারের তথ্য বদলেছে। তালিকা রিফ্রেশ করুন।")
+
     try:
-        resp = requests.post(f"{base}/create_order", json=payload,
-                             headers={"Api-Key": api_key, "Secret-Key": secret_key, "Content-Type": "application/json"}, timeout=25)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("status") not in ("success", "Success", True) and not data.get("consignment_id"):
-            raise ValueError(str(data)[:500])
-        o.courier_consignment_id = str(data.get("consignment_id", ""))
-        o.courier_tracking_code = str(data.get("tracking_code", ""))
-        o.courier_status = str(data.get("status", "submitted"))
-        o.status = "processing"
-        db.commit(); db.refresh(o)
-        return {"order": order_dict(o), "courier_response": data}
+        response = requests.post(
+            f"{base}/create_order",
+            json=payload,
+            headers={
+                "Api-Key": api_key,
+                "Secret-Key": secret_key,
+                "Content-Type": "application/json",
+            },
+            timeout=25,
+        )
+        response.raise_for_status()
+        data = response.json()
+        status_code = data.get("status")
+        consignment = data.get("consignment") or data.get("data") or {}
+        if not isinstance(consignment, dict):
+            consignment = {}
+        consignment_id = consignment.get("consignment_id") or data.get("consignment_id")
+        tracking_code = consignment.get("tracking_code") or data.get("tracking_code")
+        success = (
+            status_code in (200, "200", "success", "Success", True)
+            or str(consignment.get("status", "")).lower() == "success"
+            or bool(consignment_id and tracking_code)
+        )
+        if not success or not consignment_id or not tracking_code:
+            # Missing identifiers can mean an accepted request with an unexpected
+            # response schema. Treat it as ambiguous rather than risk a duplicate.
+            order.courier_status = "unknown"
+            db.commit()
+            raise HTTPException(502, "Steadfast response-এ tracking তথ্য পাওয়া যায়নি। Merchant panel-এ invoice যাচাই করুন; যাচাই ছাড়া পুনরায় পাঠাবেন না।")
+
+        order.courier_consignment_id = str(consignment_id)
+        order.courier_tracking_code = str(tracking_code)
+        order.courier_status = str(consignment.get("status") or "created")
+        order.status = "processing"
+        db.commit()
+        db.refresh(order)
+        return {
+            "order": order_dict(order),
+            "courier": {
+                "consignment_id": order.courier_consignment_id,
+                "tracking_code": order.courier_tracking_code,
+                "status": order.courier_status,
+            },
+        }
+    except HTTPException:
+        raise
     except requests.RequestException as exc:
+        # Timeout/network failures are ambiguous: courier may already have accepted it.
+        db.rollback()
+        try:
+            order = db.get(Order, order_id)
+            if order and not order.courier_consignment_id:
+                order.courier_status = "unknown"
+                db.commit()
+        except Exception:
+            db.rollback()
+            log.exception("Could not persist ambiguous Steadfast result")
         log.exception("Steadfast API request failed")
-        raise HTTPException(502, "Steadfast-এ অর্ডার পাঠানো যায়নি। API credentials বা merchant account পরীক্ষা করুন।") from exc
+        raise HTTPException(
+            502,
+            "Steadfast request-এর ফল নিশ্চিত নয়। Merchant panel-এ invoice খুঁজে না দেখে আবার পাঠাবেন না।",
+        ) from exc
     except Exception as exc:
+        db.rollback()
+        try:
+            order = db.get(Order, order_id)
+            if order and not order.courier_consignment_id:
+                order.courier_status = "unknown"
+                db.commit()
+        except Exception:
+            db.rollback()
         log.exception("Steadfast response could not be processed")
-        raise HTTPException(502, "Steadfast response সফলভাবে পড়া যায়নি। Merchant API documentation মিলিয়ে দেখুন।") from exc
+        raise HTTPException(
+            502,
+            "Steadfast response নিশ্চিত করা যায়নি। Merchant panel-এ invoice যাচাই করুন; পুনরায় পাঠানোর আগে support নিন।",
+        ) from exc
+
+
+@app.post("/api/admin/orders/{order_id}/steadfast/reset")
+def reset_ambiguous_steadfast(order_id: int, request: Request, db: Session = Depends(get_db)):
+    """Allow a retry only after an admin checks the merchant portal manually."""
+    require_admin(request)
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "অর্ডার পাওয়া যায়নি।")
+    if order.status != "confirmed" or order.courier_consignment_id or order.courier_tracking_code:
+        raise HTTPException(409, "এই অর্ডারের courier তথ্য reset করা নিরাপদ নয়।")
+    if order.courier_status not in {"submitting", "unknown"}:
+        raise HTTPException(409, "এই অর্ডারে ambiguous courier request নেই।")
+    reset = db.execute(
+        update(Order)
+        .where(
+            Order.id == order_id,
+            Order.status == "confirmed",
+            or_(Order.courier_consignment_id.is_(None), Order.courier_consignment_id == ""),
+            or_(Order.courier_tracking_code.is_(None), Order.courier_tracking_code == ""),
+            Order.courier_status.in_(["submitting", "unknown"]),
+        )
+        .values(courier_status="")
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    if reset.rowcount != 1:
+        raise HTTPException(409, "Courier status অন্য Admin পরিবর্তন করেছেন। তালিকা রিফ্রেশ করে আবার যাচাই করুন।")
+    return {"ok": True, "message": "Merchant panel যাচাইয়ের পর retry চালু করা হয়েছে।"}
 
 
 @app.get("/{slug}")
@@ -1123,13 +1491,14 @@ def product_landing(slug: str, request: Request, db: Session = Depends(get_db)):
     if not re.fullmatch(r"[a-z0-9-]+", slug):
         raise HTTPException(404, "পেজটি পাওয়া যায়নি।")
     product = db.scalar(select(Product).where(Product.slug == slug))
-    if not product or not product.active:
+    if not product or not product.active or not is_category_visible(db, product):
         return HTMLResponse((STATIC / "not-found.html").read_text(encoding="utf-8"), status_code=404)
     cfg = ensure_config(db)
     base = site_base_url(request)
     canonical = base + "/" + product.slug
     title = f"{product.name} | {cfg.store_name or 'RIHAM'}"
     description = product.description or f"{product.name} — সারা বাংলাদেশে ক্যাশ অন ডেলিভারি।"
+    description_meta = re.sub(r"\s+", " ", description).strip()[:160]
     image = next((str(item).strip() for item in (product.images or []) if str(item).strip()), "")
     if not image:
         image = cfg.hero_image or ""
@@ -1158,9 +1527,9 @@ def product_landing(slug: str, request: Request, db: Session = Depends(get_db)):
         "PRODUCT_DESCRIPTION_TEXT": html.escape(product.description or "পণ্যের বিস্তারিত জানতে WhatsApp-এ যোগাযোগ করুন।"),
         "PRODUCT_SIZE_GUIDE_HTML": size_guide_html,
         "PRODUCT_STOCK_NOTE": html.escape(stock_note),
-        "PRODUCT_DESCRIPTION": html.escape(description, quote=True),
+        "PRODUCT_DESCRIPTION": html.escape(description_meta, quote=True),
         "PRODUCT_OG_TITLE": html.escape(title, quote=True),
-        "PRODUCT_OG_DESCRIPTION": html.escape(description, quote=True),
+        "PRODUCT_OG_DESCRIPTION": html.escape(description_meta, quote=True),
         "PRODUCT_OG_IMAGE": html.escape(image_url, quote=True),
         "PRODUCT_OG_URL": html.escape(canonical, quote=True),
         "PRODUCT_CANONICAL": html.escape(canonical, quote=True),

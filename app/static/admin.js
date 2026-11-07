@@ -12,12 +12,13 @@ async function api(url, opts = {}) {
   if (!r.ok) {
     let msg = data.detail;
     if (Array.isArray(msg)) msg = msg.map(x => String(x.msg || '').replace(/^Value error, /, '')).filter(Boolean).join(' · ');
-    throw new Error(msg || 'কাজটি সম্পন্ন হয়নি।');
+    const error = new Error(msg || 'কাজটি সম্পন্ন হয়নি।'); error.status = r.status; throw error;
   }
   return data;
 }
 function toast(msg) { const el = $('#adminToast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 3000); }
 let products = [], orders = [], categories = [], settings = {}, editingImages = [], editingReviewImages = [], pollTimer = null, lastNewOrderCount = 0, newCategoryImage = '';
+const knownOrderIds = new Set();
 let originalEditSlug = '', slugManuallyEdited = false, autoSlugEnabled = false;
 const reservedSlugs = new Set(['admin','api','static','uploads','product','p','shop','collections','about','contact','policy','robots.txt','sitemap.xml','docs','redoc','openapi.json','health','favicon.ico','index','order','cart','login']);
 function slugFromName(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80).replace(/-+$/g,''); }
@@ -53,6 +54,7 @@ async function loadAll() {
     [products, orders, categories, settings] = await Promise.all([
       api('/api/admin/products'), api('/api/admin/orders'), api('/api/admin/categories'), api('/api/settings')
     ]);
+    knownOrderIds.clear(); orders.forEach(o=>knownOrderIds.add(Number(o.id)));
     renderStats(); renderProducts(); renderOrders(); renderCategories(); fillSettings(); fillCategorySelect();
   } catch (e) { toast(e.message); }
 }
@@ -93,14 +95,15 @@ function renderOrders() {
       <div class="order-body"><div class="order-details">📞 ${esc(o.phone)}\n📍 ${esc(o.address)}\n🚚 ${area}${o.note ? '\nনোট: ' + esc(o.note) : ''}</div>
       <div class="order-items">${(o.items || []).map(i => `${esc(i.name)} × ${i.quantity}${i.size ? ' · সাইজ ' + esc(i.size) : ''}${i.color ? ' · ' + esc(i.color) : ''} — ${money(i.unit_price * i.quantity)}`).join('<br>')}<hr style="border:0;border-top:1px solid #e5ded4"><div class="summary-line">পণ্যের দাম <span>${money(o.subtotal)}</span></div><div class="summary-line">ডেলিভারি <span>${o.delivery_fee === 0 ? 'ফ্রি' : money(o.delivery_fee)}</span></div><strong>সর্বমোট: ${money(o.total)}</strong></div></div>
       <div class="order-actions"><label class="helper-text">স্ট্যাটাস</label><select data-order-status="${o.id}">${Object.entries(statusLabels).map(([k,v]) => `<option value="${k}" ${o.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
-      <button class="text-btn" data-send-courier="${o.id}" ${(o.courier_consignment_id || o.status !== 'confirmed') ? 'disabled' : ''}>${o.courier_consignment_id ? 'Steadfast পাঠানো হয়েছে' : (o.status === 'confirmed' ? 'Steadfast-এ পাঠান' : 'আগে ফোনে Confirm করুন')}</button>
+      <button class="text-btn" data-send-courier="${o.id}" ${(o.courier_consignment_id || ['submitting','unknown'].includes(o.courier_status) || o.status !== 'confirmed') ? 'disabled' : ''}>${o.courier_consignment_id ? 'Steadfast পাঠানো হয়েছে' : (o.courier_status === 'rejected' ? 'আবার চেষ্টা করুন' : (['submitting','unknown'].includes(o.courier_status) ? 'কুরিয়ার result যাচাই করুন' : (o.status === 'confirmed' ? 'Steadfast-এ পাঠান' : 'আগে ফোনে Confirm করুন')))}</button>
+      ${['submitting','unknown'].includes(o.courier_status) && !o.courier_consignment_id ? `<button class="text-btn danger" data-reset-courier="${o.id}">Merchant panel-এ নেই — Retry খুলুন</button>` : ''}
       ${o.courier_tracking_code ? `<span class="helper-text">Tracking: ${esc(o.courier_tracking_code)}</span>` : ''}</div>
     </article>`;
   }).join('');
 }
 function renderCategories() {
   const el = $('#adminCategoryList');
-  el.innerHTML = categories.map(c => `<div class="category-admin-row"><div class="cat-row-main">${c.image ? `<img class="cat-thumb" src="${esc(c.image)}" alt="">` : '<span class="cat-thumb cat-thumb-empty">ছবি নেই</span>'}<div><strong>${esc(c.name)}</strong><small>${esc(c.description || '')}${c.active ? '' : ' · লুকানো'}</small></div></div><details class="category-edit-details"><summary>নাম / বিবরণ এডিট</summary><form data-category-edit="${c.id}"><input name="name" required minlength="2" maxlength="80" value="${esc(c.name)}" aria-label="ক্যাটাগরির নাম"><input name="description" maxlength="180" value="${esc(c.description || '')}" aria-label="ক্যাটাগরির বিবরণ"><button class="text-btn" type="submit">সেভ</button></form></details><div class="cat-row-actions"><label class="upload-more-btn">${c.image ? 'ছবি বদলান' : 'ছবি দিন'}<input type="file" accept="image/*" hidden data-cat-image="${c.id}"></label><button class="text-btn danger" data-hide-category="${c.id}">লুকান</button></div></div>`).join('') || '<div class="empty-state">কোনো ক্যাটাগরি নেই।</div>';
+  el.innerHTML = categories.map(c => `<div class="category-admin-row"><div class="cat-row-main">${c.image ? `<img class="cat-thumb" src="${esc(c.image)}" alt="">` : '<span class="cat-thumb cat-thumb-empty">ছবি নেই</span>'}<div><strong>${esc(c.name)}</strong><small>${esc(c.description || '')}${c.active ? '' : ' · লুকানো'}</small></div></div><details class="category-edit-details"><summary>নাম / বিবরণ এডিট</summary><form data-category-edit="${c.id}"><input name="name" required minlength="2" maxlength="80" value="${esc(c.name)}" aria-label="ক্যাটাগরির নাম"><input name="description" maxlength="180" value="${esc(c.description || '')}" aria-label="ক্যাটাগরির বিবরণ"><button class="text-btn" type="submit">সেভ</button></form></details><div class="cat-row-actions"><label class="upload-more-btn">${c.image ? 'ছবি বদলান' : 'ছবি দিন'}<input type="file" accept="image/*" hidden data-cat-image="${c.id}"></label>${c.active ? `<button class="text-btn danger" data-hide-category="${c.id}">লুকান</button>` : `<button class="text-btn" data-show-category="${c.id}">আবার দেখান</button>`}</div></div>`).join('') || '<div class="empty-state">কোনো ক্যাটাগরি নেই।</div>';
 }
 function fillSettings() {
   const f = $('#settingsForm');
@@ -227,11 +230,21 @@ $('#categoryForm').addEventListener('submit', async e => {
 $('#adminCategoryList').addEventListener('submit', async e => {
   const form = e.target.closest('[data-category-edit]'); if (!form) return;
   e.preventDefault();
-  const payload = {name:form.elements.name.value.trim(), description:form.elements.description.value.trim(), image:categories.find(c=>c.id===Number(form.dataset.categoryEdit))?.image || '', active:true};
+  const payload = {name:form.elements.name.value.trim(), description:form.elements.description.value.trim(), image:categories.find(c=>c.id===Number(form.dataset.categoryEdit))?.image || '', active:categories.find(c=>c.id===Number(form.dataset.categoryEdit))?.active ?? true};
   try { await api(`/api/admin/categories/${form.dataset.categoryEdit}`, {method:'PUT', body:JSON.stringify(payload)}); await loadAll(); toast('ক্যাটাগরির তথ্য আপডেট হয়েছে।'); }
   catch (err) { toast(err.message); }
 });
 $('#adminCategoryList').addEventListener('click', async e => {
+  const show = e.target.closest('[data-show-category]');
+  if (show) {
+    const category = categories.find(c=>c.id===Number(show.dataset.showCategory));
+    if (!category) return;
+    try {
+      await api(`/api/admin/categories/${category.id}`, {method:'PUT', body:JSON.stringify({...category,active:true})});
+      await loadAll(); toast('ক্যাটাগরি আবার প্রকাশ করা হয়েছে।');
+    } catch (err) { toast(err.message); }
+    return;
+  }
   const b = e.target.closest('[data-hide-category]'); if (!b) return;
   if (!confirm('এই ক্যাটাগরি ওয়েবসাইট থেকে লুকাবেন?')) return;
   try { await api(`/api/admin/categories/${b.dataset.hideCategory}`, {method:'DELETE'}); await loadAll(); toast('ক্যাটাগরি লুকানো হয়েছে।'); } catch (err) { toast(err.message); }
@@ -276,15 +289,38 @@ $('#settingsForm').addEventListener('submit', async e => {
   try { settings=await api('/api/admin/settings',{method:'PUT',body:JSON.stringify(payload)}); $('#settingsMessage').textContent='সেটিংস সংরক্ষণ হয়েছে।'; setTimeout(()=>$('#settingsMessage').textContent='',3500); toast('ওয়েবসাইটের সেটিংস আপডেট হয়েছে।'); }
   catch (err) { toast(err.message); }
 });
-async function refreshOrders() { try { orders=await api('/api/admin/orders'); renderOrders(); renderStats(); } catch (e) { toast(e.message); } }
-async function pollOrders() { try { const latest=await api('/api/admin/orders'), count=latest.filter(o=>o.status==='new').length; if (count>lastNewOrderCount) toast('নতুন অর্ডার এসেছে। অর্ডার ট্যাবে দেখুন।'); orders=latest; renderStats(); if ($('#tab-orders').classList.contains('active')) renderOrders(); } catch { /* retry next poll */ } }
+async function refreshOrders() { try { orders=await api('/api/admin/orders'); orders.forEach(o=>knownOrderIds.add(Number(o.id))); renderOrders(); renderStats(); } catch (e) { toast(e.message); } }
+async function pollOrders() {
+  try {
+    const latest=await api('/api/admin/orders');
+    const unseen=latest.some(o=>o.status==='new'&&!knownOrderIds.has(Number(o.id)));
+    if(unseen) toast('নতুন অর্ডার এসেছে। অর্ডার ট্যাবে দেখুন।');
+    latest.forEach(o=>knownOrderIds.add(Number(o.id)));
+    orders=latest; renderStats();
+    if ($('#tab-orders').classList.contains('active')) renderOrders();
+  } catch (error) {
+    if(error.status===401){
+      if(pollTimer) clearInterval(pollTimer);
+      $('#loginView').classList.remove('hidden'); $('#dashboardView').classList.add('hidden');
+      toast('সেশন শেষ হয়েছে। আবার লগইন করুন।');
+    }
+  }
+}
 $('#refreshOrdersBtn').addEventListener('click', refreshOrders);
 $('#adminOrderList').addEventListener('change', async e => {
   const sel=e.target.closest('[data-order-status]'); if (!sel) return;
   try { await api(`/api/admin/orders/${sel.dataset.orderStatus}/status`,{method:'PUT',body:JSON.stringify({status:sel.value})}); await refreshOrders(); toast('অর্ডারের স্ট্যাটাস আপডেট হয়েছে।'); }
-  catch (err) { toast(err.message); }
+  catch (err) { toast(err.message); await refreshOrders(); }
 });
 $('#adminOrderList').addEventListener('click', async e => {
+  const reset=e.target.closest('[data-reset-courier]');
+  if(reset){
+    if(!confirm('Steadfast Merchant Panel-এ এই invoice খুঁজে দেখেছেন এবং consignment নেই নিশ্চিত? নিশ্চিত না হলে Retry খুলবেন না।')) return;
+    reset.disabled=true;
+    try { await api(`/api/admin/orders/${reset.dataset.resetCourier}/steadfast/reset`,{method:'POST'}); await refreshOrders(); toast('Manual check-এর পর retry চালু হয়েছে।'); }
+    catch(err){toast(err.message);}
+    return;
+  }
   const b=e.target.closest('[data-send-courier]'); if (!b) return;
   if (!confirm('কাস্টমারের সঙ্গে ফোনে কথা বলে অর্ডার নিশ্চিত করেছেন? নিশ্চিত হলে Steadfast-এ পাঠাবেন।')) return;
   b.disabled=true;

@@ -1,83 +1,34 @@
-# RIHAM v8.3 Project Handoff
+# RIHAM Store v8.4 — বাংলা Handoff
 
-এই ZIP হলো RIHAM v8.3। Homepage-এ প্রতি পণ্যের জন্য compact card থাকে; “অর্ডার করুন” চাপলে সরাসরি ওই পণ্যের slug landing page খোলে। Homepage-এ order form নেই। Product landing page-এ একসঙ্গে একটি ছবি auto-slide হয় এবং নিচে ওই পণ্যের নিজস্ব COD order form থাকে। Admin, order protection, stock, delivery-fee ও Steadfast backend flow আগের মতো রাখা হয়েছে।
+এটি v8.3-এর ওপর targeted hardening update; পুরো project rewrite নয়। Storefront এখনও এক order-এ এক product, Cash on Delivery এবং single shared Admin key ব্যবহার করে।
 
-## V7-এ যা বদলেছে
-- ছয়টি demo product, BDT demo price, stock, sizes/colors এবং ১৭টি unique reference product photo URL যোগ করা হয়েছে।
-- Homepage-এ ১৭টি ছবি বড় vertical frame হিসেবে একটির পর একটি দেখা যায়; ছোট product grid বা customer-facing category tile নেই।
-- Admin-এর internal category ও product management রাখা হয়েছে; customer-facing storefront-এ category menu/section নেই।
-- Delivery logic ঠিক করা হয়েছে: কার্টে শুধু সম্পূর্ণ বোরকা + হিজাব + নিকাব ফুল সেট থাকলে delivery free। অন্য যেকোনো পণ্য মিশলে area-based charge যোগ হবে।
-- Non-full-set category-তে Admin-এর free-delivery checkbox disabled; backend-ও ভুল free-delivery flag reject করে।
-- বাংলা heading/body font-size, product card, category card এবং mobile spacing কমিয়ে layout গুছানো হয়েছে।
-- Remote image load না হলে placeholder দেখানোর fallback যোগ করা হয়েছে।
+## প্রধান fix
 
-## Reference photo সতর্কতা
-১৭টি ছবির URL Sarrah BD reference website থেকে নেওয়া হয়েছে। ছবিতে Sarrah branding/watermark থাকতে পারে। এই ZIP-এ ছবিগুলো binary/local file হিসেবে ZIP-এ রাখা হয়নি; website-এ source URL থেকে load হবে। Source site hotlink বন্ধ করলে বা URL বদলালে ছবি নাও আসতে পারে। এগুলো শুধু demo; production-এর আগে client-owned বা লিখিতভাবে approved image Admin থেকে upload করে replace করুন।
+- **Steadfast:** response-এর nested `consignment` থেকে ID/tracking code পড়া হয়; numeric `status: 200` গ্রহণ করা হয়। ২৫০ অক্ষরের বেশি ঠিকানা silent truncate না করে reject হয়। Customer note courier payload-এ যায়। Request পাঠানোর আগে conditional SQL update দিয়ে atomic `submitting` claim DB-তে commit হয়; দুই Admin একসঙ্গে Send চাপলেও একজনই claim পায়। Timeout বা tracking ID অনুপস্থিত হলে status `unknown`; Merchant Panel-এ invoice না থাকার manual confirmation ছাড়া retry করা যায় না।
+- **Production storage:** `APP_ENV=production` হলে SQLite/খালি `DATABASE_URL` দিয়ে app startup হবে না। Production upload-এর জন্য Cloudinary বাধ্যতামূলক; Cloudinary না থাকলে local disk-এ ছবি save হবে না। Production demo seed বন্ধ।
+- **Demo seed/migration:** Local database সম্পূর্ণ খালি হলেই demo seed হয়; existing product/gallery/size/theme overwrite হয় না। Startup migration আর theme white করে না। পুরোনো DB-তে missing courier fields add হয়।
+- **Stock:** order create করার সময় conditional SQL stock decrement হয়; insufficient stock হলে transaction rollback। Cancel/reopen status transition compare-and-set SQL update ব্যবহার করে, যাতে একই order একাধিক Admin session থেকে cancel হলেও stock দ্বিতীয়বার restore না হয়।
+- **Phone/input:** বাংলা ও Arabic-Indic digit normalize হয়; `013`–`019` prefix ছাড়া নম্বর reject। Name/address trim হয়। Duplicate error-এ আগের invoice expose হয় না।
+- **Privacy:** customer receipt-এ phone/address/fraud flag/fraud reason নেই। Admin order API-তে internal fields আছে।
+- **Time/health:** API timestamp-এ UTC `Z`; invoice date Asia/Dhaka; health endpoint DB `SELECT 1` চালায়।
+- **Storefront/Admin:** hidden category-এর product customer API, direct landing URL ও order flow থেকে বন্ধ; নতুন order notification ID দিয়ে detect; failed status update-এ Admin list refresh; expired session login-এ ফেরে; courier retry-এর আগে confirmation লাগে।
+- **SEO/performance:** meta description ১৬০ অক্ষরে সীমিত, static asset deploy-এর পর revalidate, প্রথম ছবির পরের ছবি lazy load, COD order-কে completed Purchase না দেখিয়ে Lead event পাঠায়।
 
-## Demo catalogue
-সব নাম, দাম, স্টক, রং ও সাইজ placeholder data। Client-এর actual catalogue অনুযায়ী Admin থেকে edit করতে হবে। Fresh database-এ ছয়টি demo product seed হবে। আগে থেকেই product থাকা database-এ existing products overwrite করা হবে না।
+## Test ও সীমাবদ্ধতা
 
-## V7 delivery test result
-- শুধু সম্পূর্ণ ফুল সেট: ৳০ delivery.
-- ফুল সেট + আলাদা হিজাব: Dhaka/outside delivery fee.
-- শুধু হিজাব/নিকাব বা hijab+niqab combo: Dhaka/outside delivery fee.
+Local SQLite + FastAPI TestClient regression tests এবং Node syntax checks চালানো হয়েছে। ফল `TEST_REPORT_V8_4_BN.md`-এ। Live Steadfast, PostgreSQL, Cloudinary, Render ও real Android/Termux test করা হয়নি। Concurrent courier claim-এর দুই-request race local SQLite-এ simulate করা হয়েছে; PostgreSQL multi-connection stress test হয়নি।
 
-Local test-এ default Dhaka delivery ৳৫০ এবং outside Dhaka ৳১০০ ব্যবহার করা হয়েছে। Admin → Website Settings থেকে rate বদলানো যাবে।
+## এখনো বাকি
 
-## পূর্ববর্তী সংস্করণের features
-- New Arrival banner, চারটি benefit card, optional Trust Strip এবং customer review gallery.
-- About, Contact, Delivery, Return/Exchange এবং Privacy pages.
-- Social links, SEO metadata, structured data, robots ও sitemap.
-- GA4 / Meta Pixel optional configuration.
-- Product-level Size Guide, selected size/color/quantity সহ WhatsApp order message.
-- Admin থেকে content ও image edit/upload.
+- In-memory rate-limit restart/multiple-worker-এ shared নয়; forwarded header trust provider proxy configuration-এর ওপর নির্ভরশীল।
+- Shared Admin key; named user, role, 2FA, audit log নেই।
+- Cart, variant-wise stock, customer tracking page, SMS, online payment, returns workflow নেই।
+- Order pagination/search/export/edit নেই। Courier webhook/status polling নেই।
+- Alembic migration নেই; ad-hoc additive migration আছে।
+- EXIF strip, image dimensions limit, optimization ও orphan image cleanup নেই।
+- Pixel/GA4 consent banner/privacy-policy update দরকার। কিছু legacy CMS setting ও unused CSS রয়ে গেছে।
+- Imported demo image এখনও third-party URL হতে পারে; অনুমোদিত RIHAM image দিয়ে replace করতে হবে।
 
-## Test করার ধাপ
-1. ZIP extract করে `START_HERE_BN.md` অনুসরণ করুন।
-2. Homepage, category cards, product gallery, cart ও checkout পরীক্ষা করুন।
-3. Admin → Products থেকে photo, price, stock, size/color ও free delivery edit পরীক্ষা করুন।
-- Admin-এর internal category ও product management রাখা হয়েছে; customer-facing storefront-এ category menu/section নেই।
-5. Dhaka এবং outside delivery দুটো area-তেই full-set-only ও mixed-cart order পরীক্ষা করুন।
+## Live launch gate
 
-## Production সতর্কতা
-- Sarrah BD-এর logo/name, phone, social account, customer count, rating বা review photo RIHAM-এর পরিচয় হিসেবে ব্যবহার করবেন না।
-- Product photo, price, measurement, stock, return/exchange policy ও business contact ক্লায়েন্টের কাছ থেকে confirm করুন।
-- Production-এ strong `ADMIN_ACCESS_KEY`, 32+ character random `SESSION_SECRET`, HTTPS/secure cookie, persistent database/image storage ও backups configure করুন।
-- Steadfast live API, production Supabase/Cloudinary ও courier workflow এই local test-এ real credentials দিয়ে যাচাই করা হয়নি।
-- Fake-order protection heuristic-based; SMS OTP বা শতভাগ প্রতিরোধের নিশ্চয়তা নেই।
-
-**এটি testable demo foundation; production security audit বা live business launch-এর চূড়ান্ত অনুমোদন নয়।**
-
-
-## V8.1 — পণ্যভিত্তিক Facebook Ad landing page
-- প্রতিটি active product-এর জন্য `/{slug}` public URL তৈরি হয়। Admin থেকে product add/edit করলেই URL তৈরি/আপডেট হয়।
-- Landing page-এ ওই product-এর সর্বোচ্চ ৬টি ছবি, price/discount, description, size guide, stock note এবং fixed-product COD form থাকে; product-choice ধাপ নেই।
-- Homepage-এর all-products lookbook + all-products order form আগের মতোই থাকে।
-- `/api/products/by-slug/{slug}` API যোগ হয়েছে। পুরোনো `/product/{id}` URL active product-এর নতুন slug URL-এ 301 redirect করে।
-- ASCII slug generation, reserved slug rejection, duplicate check এবং startup SQLite/PostgreSQL-compatible slug repair migration যোগ হয়েছে। Existing valid ASCII slugs অক্ষত থাকে।
-- Slug history সংরক্ষণ করা হয়নি; তাই Admin slug change-এর আগে সতর্ক করে। চলমান বিজ্ঞাপনে নতুন URL বসাতে হবে।
-- Product SEO/OG/Twitter/JSON-LD server HTML-এ inject হয়। Homepage OG image প্রথম active product image থেকে আসে।
-- `PUBLIC_SITE_URL` product/home metadata, canonical, sitemap ও robots-এর base URL; সেটি না থাকলে `request.base_url` ব্যবহৃত হয়।
-- Product landing page এবং home একই mode-aware `app.js` ও `/static/pixel.js` ব্যবহার করে। Meta events: PageView, ViewContent, InitiateCheckout, Purchase.
-- Store owner-এর বাংলা নির্দেশনা: `HOW_TO_USE_V8_1_BN.md`; পরীক্ষার ফল/সীমাবদ্ধতা: `TEST_REPORT_BN.md`।
-
-## V8.1 known verification limits
-- SQLite + FastAPI TestClient checks ran. Full `pip install -r requirements.txt` could not complete because package index DNS/network was unavailable in this environment.
-- Chromium exists, but the execution environment blocked local HTTP navigation with `ERR_BLOCKED_BY_ADMINISTRATOR`; real 390px/desktop browser interaction, visual rendering, JS console and Pixel queue remain unverified here.
-- Live Facebook crawler, Render, Steadfast and PostgreSQL were not available for live verification.
-
-## V8.2 আপডেট
-- হোমপেজে সম্মিলিত অর্ডার ফর্ম নেই; প্রতিটি পণ্যের অর্ডার বাটন সরাসরি নিজস্ব slug landing page খোলে।
-- প্রতিটি product landing page-এ শুধু সংশ্লিষ্ট পণ্যের অর্ডার ফর্ম আছে; COD backend অপরিবর্তিত।
-- হেডার/ফুটারের ব্র্যান্ডিং “RIHAM STORE”; বড় একক R badge বাদ। Footer-এ বাংলা tagline ও নেভিগেশন আছে।
-
-
-## V8.3 — সহজ product browsing, auto gallery ও shared footer
-- Homepage-এর lookbook এখন product-based: প্রতিটি active product-এর জন্য একটিমাত্র card, প্রথম ছবি, নাম ও দাম দেখা যায়। একই product-এর ৩–৬টি ছবি homepage-এ আলাদা লম্বা frame হিসেবে দেখানো হয় না।
-- Card-এর “অর্ডার করুন” বা “বিস্তারিত দেখুন” সরাসরি `/{slug}` খোলে। Homepage-এ সম্মিলিত order form নেই; order শুধু ওই product-এর landing page-এ করা যায়।
-- Homepage product card scroll করে viewport-এ এলে smooth reveal animation হয়। `prefers-reduced-motion` চালু থাকলে animation বন্ধ/সরল হয়।
-- Product landing page-এর ছবিগুলো একটি fixed-height gallery frame-এ থাকে এবং প্রায় ২.৮ সেকেন্ডে slide করে; arrow, dots এবং horizontal touch swipe-ও কাজ করে। ছবি ১টি হলে autoplay control তৈরি হয় না।
-- `app/static/footer.html` হলো একমাত্র shared footer source। Backend homepage ও সব product landing HTML-এ একই footer server-side inject করে; WhatsApp link app.js সেটিংস থেকে পায়।
-- Footer-এ একই Brand, tagline, About, Contact, Delivery, Return/Exchange, Privacy ও Admin link রয়েছে। Contact/WhatsApp section-এর wording-ও দুই storefront page-এ এক করা হয়েছে।
-- FastAPI version ও health metadata 8.3.0 করা হয়েছে। কোনো runtime package যোগ হয়নি।
-- Test: py_compile, node --check, FastAPI TestClient route/product/footer, এবং Chromium in-memory viewport test (390px/1365px) চালানো হয়েছে। Local HTTP browser navigation `ERR_BLOCKED_BY_ADMINISTRATOR` হওয়ায় real URL navigation/Render verification বাকি। বিস্তারিত `TEST_REPORT_V8_3_BN.md`-এ।
+Backup-সহ persistent PostgreSQL, Cloudinary, approved image/price/return policy, HTTPS domain, strong secrets, backup restore rehearsal এবং real Merchant Panel-এর Steadfast smoke test ছাড়া live customer order নেবেন না। Render Free filesystem ephemeral; Render Free PostgreSQL ৩০ দিন পরে expire করে—বর্তমান provider terms দেখে স্থায়ী database পরিকল্পনা করুন।

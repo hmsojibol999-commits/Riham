@@ -73,21 +73,22 @@
         <section class="form-step customer-step">
           <h4><span>③</span> আপনার তথ্য</h4>
           <label class="field-label"><span>আপনার পুরো নাম *</span><input name="customer_name" type="text" required minlength="2" maxlength="120" autocomplete="name" placeholder="আপনার পুরো নাম"></label>
-          <label class="field-label"><span>মোবাইল নম্বর *</span><input name="phone" type="tel" required inputmode="numeric" autocomplete="tel" maxlength="14" pattern="[0-9+ -]{10,14}" placeholder="01XXXXXXXXX"></label>
+          <label class="field-label"><span>মোবাইল নম্বর *</span><input name="phone" type="tel" required inputmode="numeric" autocomplete="tel" maxlength="20" pattern="[0-9০-৯+ -]{10,20}" placeholder="01XXXXXXXXX"></label>
           <label class="field-label"><span>সম্পূর্ণ ঠিকানা *</span><textarea name="address" required minlength="8" maxlength="1000" rows="3" autocomplete="street-address" placeholder="গ্রাম/মহল্লা, বাসা/রোড, উপজেলা, জেলা"></textarea></label>
+          <label class="field-label"><span>ডেলিভারি নির্দেশনা (ঐচ্ছিক)</span><textarea name="note" maxlength="1000" rows="2" placeholder="বাসা খুঁজে পেতে বিশেষ নির্দেশনা থাকলে লিখুন"></textarea></label>
         </section>
 
         <section class="form-step">
           <h4><span>④</span> ডেলিভারি এলাকা</h4>
           <div class="delivery-options">
-            <label class="delivery-option selected" data-area-card="dhaka">
-              <input type="radio" name="delivery_area" value="dhaka" checked>
+            <label class="delivery-option" data-area-card="dhaka">
+              <input type="radio" name="delivery_area" value="dhaka">
               <span class="delivery-emoji">🏙️</span>
               <span class="delivery-copy"><b>ঢাকার ভিতর</b><small id="dhakaFeeLabel">ডেলিভারি চার্জ: ৳৫০</small></span>
               <span class="selection-mark">✓</span>
             </label>
-            <label class="delivery-option" data-area-card="outside">
-              <input type="radio" name="delivery_area" value="outside">
+            <label class="delivery-option selected" data-area-card="outside">
+              <input type="radio" name="delivery_area" value="outside" checked>
               <span class="delivery-emoji">🚚</span>
               <span class="delivery-copy"><b>ঢাকার বাইরে</b><small id="outsideFeeLabel">ডেলিভারি চার্জ: ৳১০০</small></span>
               <span class="selection-mark">✓</span>

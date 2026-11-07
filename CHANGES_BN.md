@@ -69,3 +69,16 @@
 - নতুন `app/static/footer.html` হলো shared footer-এর একমাত্র source; server-side HTML rendering-এ দুই ধরনের storefront page-এ একই footer inject হয়। WhatsApp link settings থেকে চালু হয়; About, Contact, Delivery, Return/Exchange, Privacy ও Admin link এক নিয়মে থাকে।
 - Backend version metadata `8.3.0`; নতুন runtime dependency যোগ হয়নি।
 - Test report: `TEST_REPORT_V8_3_BN.md`; store owner guide: `HOW_TO_USE_V8_3_BN.md`।
+
+## V8.4 — Backend safety, order handling ও deployment hardening
+- Production startup-এ SQLite fallback বন্ধ; strong secrets, HTTPS canonical URL ও secure cookie বাধ্যতামূলক। Production-এ demo seed বন্ধ এবং upload-এর সময় Cloudinary না থাকলে local-disk fallback বন্ধ।
+- Demo seed শুধু পুরো catalogue খালি হলে local mode-এ চলে; existing product/category/theme/gallery/size setting আর startup থেকে overwrite হয় না। Courier columns-এর additive migration যোগ হয়েছে।
+- Steadfast response-এর nested consignment fields parse হয়; missing tracking ID বা timeout ambiguous হিসেবে lock থাকে। Merchant Panel যাচাই ছাড়া পুনরায় send করা যায় না। Address ২৫০ অক্ষরের বেশি হলে reject, customer note পাঠানো হয়।
+- Steadfast send operation-এর atomic database claim যোগ হয়েছে; একই order-এ concurrent Admin request হলে একটি request-ই courier API-তে যেতে পারে।
+- Hidden category-এর product API ও order flow ছাড়াও সরাসরি `/{slug}` landing URL থেকেও 404 হয়।
+- Stock deduction conditional SQL update; status transition compare-and-set; cancellation/reopen stock adjustment একই transaction-এ। Shipped/delivered/courier-submitted order সরাসরি cancel হয় না।
+- বাংলা/Arabic-Indic phone digit normalize; বাংলাদেশি `013`–`019` prefix validation; whitespace-only name/address/store name reject। Repeat phone শুধু manual review hint।
+- Customer receipt থেকে phone/address/fraud internals বাদ। UTC timestamp explicit `Z`, invoice date Dhaka timezone। Health endpoint DB ping করে।
+- Hidden category product public API ও order API থেকে বন্ধ। Failed status update refresh, new order ID notification, expired admin session login-এ ফেরে।
+- Static assets revalidate; SEO meta description ১৬০ অক্ষরে সীমিত; lower images lazy; COD order `Lead`/`generate_lead`, completed Purchase নয়। Settings API storefront page-এ একবারই fetch হয়।
+- Android/Termux local setup ও production deployment warning README/START_HERE/HANDOFF-এ আপডেট; regression tests যোগ।
