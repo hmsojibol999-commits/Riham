@@ -112,3 +112,6 @@ The reference TXT describes another brand. RIHAM does not inherit Sarrah BD's lo
 - Changing a slug changes the ad URL. There is no slug-history redirect in this version; Admin asks for confirmation and warns that old running ad links will stop working. Update existing ads after changing it.
 - To move to a custom domain later: set `PUBLIC_SITE_URL=https://your-domain` in Render Environment, then add the same domain under Render → Settings → Custom Domains and configure the DNS records Render shows. No source-code edit is needed.
 - See `HOW_TO_USE_V8_1_BN.md` for the owner-facing Bengali instructions and `TEST_REPORT_BN.md` for test limitations/results.
+
+### V8.2 storefront navigation
+The homepage is a product lookbook only; it no longer contains the combined order form. Each product's “অর্ডার করুন” link opens that product's own `/{slug}` landing page, where its individual COD order form remains available. The shared storefront identity is “RIHAM STORE”.

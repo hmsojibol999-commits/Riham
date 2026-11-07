@@ -23,10 +23,10 @@
 <body>
   <header class="site-header v7-header">
     <a href="/" class="brand v7-brand" aria-label="RIHAM Home">
-      <span class="brand-seal">R</span>
-      <span class="brand-words"><b>RIHAM</b><small>BORKA · HIJAB · NIQAB</small></span>
+      <span class="brand-mark" aria-hidden="true">✦</span>
+      <span class="brand-words"><b>RIHAM STORE</b><small>শালীন পোশাকের বিশ্বস্ত ঠিকানা</small></span>
     </a>
-    <a href="#order" class="header-order"><span aria-hidden="true">🛒</span> অর্ডার করুন</a>
+    <a href="#lookbook" class="header-order"><span aria-hidden="true">⌄</span> পণ্য দেখুন</a>
   </header>
 
   <main>
@@ -45,92 +45,6 @@
       <div class="review-dots" id="reviewDots"></div>
     </section>
 
-    <section class="order-section" id="order">
-      <div class="order-heading">
-        <p class="eyebrow">ORDER NOW</p>
-        <h2>অর্ডার করুন</h2>
-        <h3>নিচের ফর্মটি পূরণ করুন</h3>
-        <span class="heading-rule"><i></i><i></i></span>
-      </div>
-
-      <form id="inlineOrderForm" class="inline-order-form" novalidate>
-        <section class="form-step">
-          <h4><span>①</span> পণ্য বাছাই করুন</h4>
-          <div id="orderProductChoices" class="order-product-choices">
-            <div class="form-loading">পণ্য লোড হচ্ছে…</div>
-          </div>
-        </section>
-
-        <section class="form-step" id="orderSizeStep">
-          <h4><span>②</span> সাইজ বাছাই করুন <small>(ইঞ্চিতে)</small></h4>
-          <div id="orderSizeChoices" class="size-choices"></div>
-          <p class="size-help">সাইজ নিশ্চিত না হলে WhatsApp-এ জিজ্ঞেস করুন → <a id="sizeHelpWhatsapp" href="#" target="_blank" rel="noopener">যোগাযোগ করুন</a></p>
-          <div id="orderColorWrap" class="order-color-wrap" hidden>
-            <label for="orderColor">রং নির্বাচন করুন</label>
-            <select id="orderColor"></select>
-          </div>
-        </section>
-
-        <section class="form-step quantity-step">
-          <h4><span>③</span> পরিমাণ</h4>
-          <div class="quantity-row">
-            <div class="quantity-control">
-              <button type="button" id="qtyMinus" aria-label="পরিমাণ কমান">−</button>
-              <output id="qtyValue" aria-live="polite">১</output>
-              <button type="button" id="qtyPlus" aria-label="পরিমাণ বাড়ান">+</button>
-            </div>
-            <p>মোট: <strong id="productSubtotal">৳০</strong></p>
-          </div>
-        </section>
-
-        <section class="form-step customer-step">
-          <h4><span>④</span> আপনার তথ্য</h4>
-          <label class="field-label"><span>আপনার পুরো নাম *</span><input name="customer_name" type="text" required minlength="2" maxlength="120" autocomplete="name" placeholder="আপনার পুরো নাম"></label>
-          <label class="field-label"><span>মোবাইল নম্বর *</span><input name="phone" type="tel" required inputmode="numeric" autocomplete="tel" maxlength="14" pattern="[0-9+ -]{10,14}" placeholder="01XXXXXXXXX"></label>
-          <label class="field-label"><span>সম্পূর্ণ ঠিকানা *</span><textarea name="address" required minlength="8" maxlength="1000" rows="3" autocomplete="street-address" placeholder="গ্রাম/মহল্লা, বাসা/রোড, উপজেলা, জেলা"></textarea></label>
-        </section>
-
-        <section class="form-step">
-          <h4><span>⑤</span> ডেলিভারি এলাকা</h4>
-          <div class="delivery-options">
-            <label class="delivery-option selected" data-area-card="dhaka">
-              <input type="radio" name="delivery_area" value="dhaka" checked>
-              <span class="delivery-emoji">🏙️</span>
-              <span class="delivery-copy"><b>ঢাকার ভিতর</b><small id="dhakaFeeLabel">ডেলিভারি চার্জ: ৳৫০</small></span>
-              <span class="selection-mark">✓</span>
-            </label>
-            <label class="delivery-option" data-area-card="outside">
-              <input type="radio" name="delivery_area" value="outside">
-              <span class="delivery-emoji">🚚</span>
-              <span class="delivery-copy"><b>ঢাকার বাইরে</b><small id="outsideFeeLabel">ডেলিভারি চার্জ: ৳১০০</small></span>
-              <span class="selection-mark">✓</span>
-            </label>
-          </div>
-        </section>
-
-        <section class="form-step">
-          <h4><span>⑥</span> পেমেন্ট পদ্ধতি</h4>
-          <div class="payment-option">
-            <span class="payment-emoji">💵</span>
-            <span><b>ক্যাশ অন ডেলিভারি</b><small>পণ্য হাতে পেয়ে টাকা দিন</small></span>
-            <span class="selection-mark">✓</span>
-          </div>
-        </section>
-
-        <div class="order-summary" id="orderSummary" aria-live="polite">
-          <h4>অর্ডার সারসংক্ষেপ</h4>
-          <div class="summary-line"><span>পণ্য নির্বাচন করুন</span><strong>৳০</strong></div>
-          <div class="summary-line"><span>ডেলিভারি চার্জ</span><strong>৳০</strong></div>
-          <div class="summary-total"><b>সর্বমোট</b><strong>৳০</strong></div>
-        </div>
-
-        <div class="form-trap" aria-hidden="true"><label>এটি খালি রাখুন<input name="website" tabindex="-1" autocomplete="off"></label></div>
-        <button id="confirmOrderBtn" class="confirm-order-btn" type="submit">🛒 অর্ডার কনফার্ম করুন</button>
-        <p class="terms-note">অর্ডার করলে আমাদের শর্তাবলী মেনে নিতে সম্মত আছেন বলে ধরা হবে।</p>
-        <div id="orderSuccess" class="order-success" hidden role="status"></div>
-      </form>
-    </section>
-
     <section class="v7-contact">
       <p class="eyebrow">WE ARE HERE TO HELP</p>
       <h2>সাইজ বা অর্ডার নিয়ে প্রশ্ন আছে?</h2>
@@ -140,10 +54,11 @@
   </main>
 
   <footer class="v7-footer">
-    <div class="footer-brand-line"><span class="brand-seal small-seal">R</span><b>RIHAM</b></div>
-    <p>বোরকা · হিজাব · নিকাব</p>
-    <small>© <span id="year"></span> RIHAM. All rights reserved.</small>
-    <a href="/admin" class="store-access">Store Access</a>
+    <div class="footer-brand-line"><span class="footer-star" aria-hidden="true">✦</span><b>RIHAM STORE</b></div>
+    <p>আপনার পছন্দ, আমাদের যত্ন</p>
+    <nav class="footer-links" aria-label="প্রয়োজনীয় লিংক"><a href="/about">আমাদের সম্পর্কে</a><a href="/policy/delivery">ডেলিভারি নীতি</a><a href="/contact">যোগাযোগ</a></nav>
+    <small>© <span id="year"></span> RIHAM STORE · সর্বস্বত্ব সংরক্ষিত</small>
+    <a href="/admin" class="store-access">অ্যাডমিন</a>
   </footer>
 
   <a id="floatingWhatsapp" class="v7-whatsapp" href="#" target="_blank" rel="noopener" aria-label="WhatsApp-এ মেসেজ করুন">

@@ -65,3 +65,8 @@ Local test-এ default Dhaka delivery ৳৫০ এবং outside Dhaka ৳১�
 - SQLite + FastAPI TestClient checks ran. Full `pip install -r requirements.txt` could not complete because package index DNS/network was unavailable in this environment.
 - Chromium exists, but the execution environment blocked local HTTP navigation with `ERR_BLOCKED_BY_ADMINISTRATOR`; real 390px/desktop browser interaction, visual rendering, JS console and Pixel queue remain unverified here.
 - Live Facebook crawler, Render, Steadfast and PostgreSQL were not available for live verification.
+
+## V8.2 আপডেট
+- হোমপেজে সম্মিলিত অর্ডার ফর্ম নেই; প্রতিটি পণ্যের অর্ডার বাটন সরাসরি নিজস্ব slug landing page খোলে।
+- প্রতিটি product landing page-এ শুধু সংশ্লিষ্ট পণ্যের অর্ডার ফর্ম আছে; COD backend অপরিবর্তিত।
+- হেডার/ফুটারের ব্র্যান্ডিং “RIHAM STORE”; বড় একক R badge বাদ। Footer-এ বাংলা tagline ও নেভিগেশন আছে।

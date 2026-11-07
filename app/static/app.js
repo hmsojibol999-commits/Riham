@@ -65,14 +65,9 @@ function renderLookbook(){
     const productName=item.product.name||'RIHAM Collection';
     return `<figure class="lookbook-frame">
       <img src="${esc(item.src)}" alt="${esc(productName)} — ${esc(viewNames[(item.view-1)%viewNames.length])}" ${index>1?'loading="lazy"':'fetchpriority="high"'}>
-      <figcaption class="lookbook-caption"><div><small>RIHAM কালেকশন · ${String(index+1).padStart(2,'0')} / ${photos.length}</small><h2>${esc(productName)}</h2><p>${esc(viewNames[(item.view-1)%viewNames.length])}</p></div><a class="lookbook-order" href="#order" data-order-product="${item.product.id}">অর্ডার করুন ↗</a></figcaption>
+      <figcaption class="lookbook-caption"><div><small>RIHAM STORE · ${String(index+1).padStart(2,'0')} / ${photos.length}</small><h2>${esc(productName)}</h2><p>${esc(viewNames[(item.view-1)%viewNames.length])}</p></div><a class="lookbook-order" href="/${encodeURIComponent(item.product.slug||'')}">অর্ডার করুন ↗</a></figcaption>
     </figure>`;
   }).join('');
-  root.querySelectorAll('[data-order-product]').forEach(link=>link.addEventListener('click',()=>{
-    const product=state.products.find(p=>String(p.id)===link.dataset.orderProduct);
-    if(product && orderableProducts().some(p=>p.id===product.id)){state.selected=product;state.size='';state.color='';state.quantity=1;renderOrderForm();trackOnce('ViewContent');}
-    else if(product){toast('দুঃখিত, এই পণ্যটি এখন স্টকে নেই।');}
-  }));
   root.querySelectorAll('.lookbook-frame img').forEach(img=>img.addEventListener('error',()=>{
     img.style.opacity='0';img.parentElement.classList.add('image-unavailable');
     img.parentElement.insertAdjacentHTML('beforeend','<div class="image-error-note">ছবিটি source website থেকে লোড হয়নি</div>');
@@ -231,13 +226,13 @@ async function boot(){
     document.documentElement.style.setProperty('--riham-green',settings.accent_color||'#176b39');
     document.documentElement.style.setProperty('--riham-green-dark',settings.accent_color||'#13592f');
     if(!isLanding)document.title=`${settings.store_name||'RIHAM'} — বোরকা কালেকশন`;
-    document.querySelectorAll('.brand-words b,.footer-brand-line b').forEach(el=>el.textContent=settings.store_name||'RIHAM');
+    document.querySelectorAll('.brand-words b,.footer-brand-line b').forEach(el=>el.textContent='RIHAM STORE');
     const title=settings.hero_title||'শালীনতায় থাকুক নিজস্ব সৌন্দর্য';
     if($('#introTitle')) $('#introTitle').textContent=title.replace(/<[^>]*>/g,'');
     if($('#introText')) $('#introText').textContent=settings.hero_subtitle||'আমাদের বোরকা কালেকশনের প্রতিটি ডিজাইন ভালোভাবে দেখে পছন্দ করুন।';
     const wanted=Number(new URLSearchParams(location.search).get('product'));
     if(!isLanding&&wanted){const w=state.products.find(p=>p.id===wanted&&p.stock>0);if(w)state.selected=w;}
-    updateWhatsapp();renderLookbook();renderLandingDetails();renderReviews();startOrderForm();
+    updateWhatsapp();renderLookbook();renderLandingDetails();renderReviews();if(isLanding)startOrderForm();
     if(window.rihamTrack){
       if(isLanding)window.rihamTrack('ViewContent',{content_type:'product',content_ids:[Number(state.selected.id)],content_name:state.selected.name,value:effectivePrice(state.selected),currency:'BDT'});
       else window.rihamTrack('ViewContent',{content_type:'product_group',currency:'BDT'});

@@ -51,3 +51,10 @@
 - `PUBLIC_SITE_URL` দেওয়া থাকলে SEO, canonical, sitemap ও robots-এ সেটি ব্যবহৃত হয়; না থাকলে request host ব্যবহৃত হয়। Render environment template-এ ভ্যারিয়েবলটি যোগ হয়েছে।
 - বাংলা owner guide এবং test report যোগ হয়েছে: `HOW_TO_USE_V8_1_BN.md`, `TEST_REPORT_BN.md`।
 - কোনো নতুন runtime dependency যোগ হয়নি। Chromium, বাস্তব Facebook crawler, Render, Steadfast live API ও PostgreSQL verification environment সীমাবদ্ধতায় সম্পন্ন হয়নি—বিস্তারিত test report-এ।
+
+## V8.2 — হোমপেজ অর্ডার নেভিগেশন ও ব্র্যান্ডিং
+- হোমপেজের সম্মিলিত অর্ডার ফর্ম সম্পূর্ণ সরানো হয়েছে; হোমপেজে আর `#order` ফর্ম নেই।
+- প্রতিটি পণ্যের “অর্ডার করুন” বাটন সরাসরি সেই পণ্যের নিজস্ব `/{slug}` ল্যান্ডিং পেজে যায়।
+- আলাদা পণ্য ল্যান্ডিং পেজের নিজস্ব অর্ডার ফর্ম ও COD প্রক্রিয়া অপরিবর্তিত রাখা হয়েছে।
+- হেডার ও ফুটারে বড় “R” সিল বাদ দিয়ে পরিমিত “RIHAM STORE” ব্র্যান্ডিং, বাংলা tagline এবং সাজানো footer navigation যোগ হয়েছে।
+- হোমপেজ ও product landing—দুই জায়গাতেই একই footer/contact visual style ব্যবহার করা হয়েছে।
