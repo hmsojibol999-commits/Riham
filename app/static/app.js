@@ -6,7 +6,11 @@ function esc(v=''){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt
 async function api(url, opts={}) {
   const response = await fetch(url,{headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts});
   const data = await response.json().catch(()=>({}));
-  if(!response.ok) throw new Error(data.detail || 'দুঃখিত, অর্ডারটি সম্পন্ন হয়নি।');
+  if(!response.ok){
+    let msg=data.detail;
+    if(Array.isArray(msg)) msg='অনুগ্রহ করে নাম, মোবাইল নম্বর ও ঠিকানা সঠিকভাবে লিখুন।';
+    throw new Error(msg || 'দুঃখিত, অর্ডারটি সম্পন্ন হয়নি।');
+  }
   return data;
 }
 function effectivePrice(product){
@@ -14,8 +18,20 @@ function effectivePrice(product){
   return product.sale_price !== null && product.sale_price !== undefined && Number.isFinite(sale) && sale < Number(product.price) ? sale : Number(product.price || 0);
 }
 function isFree(product){return !!product?.free_delivery && ['ফুল সেট','full set','full-set'].includes(String(product.category||'').trim().toLowerCase());}
+function normalizePhone(v){
+  let d=String(v||'').replace(/\D/g,'');
+  if(d.startsWith('880')&&d.length===13)d='0'+d.slice(3);
+  else if(d.length===10&&d.startsWith('1'))d='0'+d;
+  return d;
+}
 function selectedArea(){return $('input[name="delivery_area"]:checked')?.value || 'dhaka';}
 function feeFor(product, area){if(isFree(product)) return 0;return area==='dhaka'?Number(state.settings.dhaka_delivery_fee??50):Number(state.settings.outside_delivery_fee??100);}
+const _tracked={};
+function trackOnce(name,data){ if(_tracked[name])return; _tracked[name]=1; if(window.rihamTrack) window.rihamTrack(name,data||trackData()); }
+function trackData(){
+  const p=state.selected; if(!p) return {};
+  return {content_type:'product',content_ids:[String(p.id)],content_name:p.name,contents:[{id:String(p.id),quantity:state.quantity,item_price:effectivePrice(p)}],currency:'BDT',value:effectivePrice(p)*state.quantity};
+}
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.remove('show'),3500);}
 function whatsappUrl(message){const number=String(state.settings.whatsapp_number||state.settings.support_phone||'').replace(/\D/g,'');return number?`https://wa.me/${number}?text=${encodeURIComponent(message)}`:'#';}
 function updateWhatsapp(){
@@ -49,7 +65,8 @@ function renderLookbook(){
   }).join('');
   root.querySelectorAll('[data-order-product]').forEach(link=>link.addEventListener('click',()=>{
     const product=state.products.find(p=>String(p.id)===link.dataset.orderProduct);
-    if(product && orderableProducts().some(p=>p.id===product.id)){state.selected=product;state.size='';state.quantity=1;renderOrderForm();}
+    if(product && orderableProducts().some(p=>p.id===product.id)){state.selected=product;state.size='';state.color='';state.quantity=1;renderOrderForm();trackOnce('ViewContent');}
+    else if(product){toast('দুঃখিত, এই পণ্যটি এখন স্টকে নেই।');}
   }));
   root.querySelectorAll('.lookbook-frame img').forEach(img=>img.addEventListener('error',()=>{
     img.style.opacity='0';img.parentElement.classList.add('image-unavailable');
@@ -57,22 +74,20 @@ function renderLookbook(){
   },{once:true}));
 }
 function orderableProducts(){
-  const list=state.products.filter(p=>p.active!==false && p.stock>0).sort((a,b)=>Number(a.id)-Number(b.id));
-  const full=list.filter(p=>['ফুল সেট','full set','full-set'].includes(String(p.category||'').trim().toLowerCase()));
-  const combo=list.filter(p=>/হিজাব/.test(p.category||'') && /নিকাব/.test(p.category||''));
-  return [...full.slice(0,1),...combo.slice(0,1)];
+  // Every published product that is in stock can be ordered (new products added from Admin appear here automatically).
+  return state.products.filter(p=>p.active!==false && Number(p.stock)>0).sort((a,b)=>Number(a.id)-Number(b.id));
 }
 function renderProductChoices(){
   const target=$('#orderProductChoices'),items=orderableProducts();
-  if(!items.length){target.innerHTML='<p class="form-loading">Admin Panel থেকে একটি active ফুল সেট এবং একটি হিজাব + নিকাব পণ্য যোগ করুন।</p>';$('#confirmOrderBtn').disabled=true;return;}
+  if(!items.length){target.innerHTML='<p class="form-loading">এই মুহূর্তে কোনো পণ্য স্টকে নেই। বিস্তারিত জানতে WhatsApp-এ যোগাযোগ করুন।</p>';$('#confirmOrderBtn').disabled=true;return;}
   $('#confirmOrderBtn').disabled=false;
   if(!state.selected || !items.some(p=>p.id===state.selected.id)) state.selected=items[0];
   target.innerHTML=items.map((p,index)=>{
     const current=state.selected?.id===p.id;
     return `<label class="order-choice ${current?'selected':''}">
-      ${index===0?'<span class="popular-tag">জনপ্রিয়</span>':''}
+      ${p.featured?'<span class="popular-tag">জনপ্রিয়</span>':''}
       <input type="radio" name="order_product" value="${p.id}" ${current?'checked':''}>
-      <span><b class="choice-label">${esc(p.name)}</b><small class="choice-description">${esc(p.description||'প্রিমিয়াম বোরকা, হিজাব ও নিকাব সেট')}</small></span>
+      <span><b class="choice-label">${esc(p.name)}</b><small class="choice-description">${esc(p.category||'')}${p.description?' · '+esc(p.description):''}</small></span>
       <strong class="choice-price">${money(effectivePrice(p))}</strong><i class="choice-check">✓</i>
     </label>`;
   }).join('');
@@ -81,14 +96,16 @@ function renderProductChoices(){
   }));
 }
 function renderSizeChoices(){
-  const sizes=state.selected?.sizes?.length?state.selected.sizes:['৪৮','৫০','৫২','৫৪','৫৬','৫৮'];
+  const sizes=state.selected?.sizes||[];
+  const step=$('#orderSizeStep'); if(step) step.hidden=!sizes.length;
   if(state.size && !sizes.includes(state.size))state.size='';
   $('#orderSizeChoices').innerHTML=sizes.map(s=>`<button type="button" class="size-choice ${state.size===s?'selected':''}" data-size="${esc(s)}">${esc(s)}</button>`).join('');
   $('#orderSizeChoices').querySelectorAll('[data-size]').forEach(button=>button.addEventListener('click',()=>{state.size=button.dataset.size;renderSizeChoices();updateSummary();}));
   const colors=state.selected?.colors||[];
-  // The reference order form does not ask customers to choose a color; use the first Admin-configured color.
-  $('#orderColorWrap').hidden=true;
-  state.color=state.color||colors[0]||'';
+  // One colour -> used automatically. Several colours -> customer must be able to choose.
+  if(!colors.includes(state.color)) state.color=colors[0]||'';
+  $('#orderColorWrap').hidden=colors.length<2;
+  $('#orderColor').innerHTML=colors.map(c=>`<option value="${esc(c)}" ${c===state.color?'selected':''}>${esc(c)}</option>`).join('');
 }
 function updateDeliverySelection(){
   document.querySelectorAll('[data-area-card]').forEach(card=>card.classList.toggle('selected',card.dataset.areaCard===selectedArea()));
@@ -114,6 +131,7 @@ function startOrderForm(){
   document.querySelectorAll('input[name="delivery_area"]').forEach(input=>input.addEventListener('change',updateSummary));
   $('#orderColor').addEventListener('change',e=>{state.color=e.target.value;});
   $('#inlineOrderForm').addEventListener('submit',submitOrder);
+  $('#inlineOrderForm').addEventListener('focusin',()=>trackOnce('InitiateCheckout'));
   renderOrderForm();
 }
 async function submitOrder(event){
@@ -122,7 +140,7 @@ async function submitOrder(event){
   if(!product){toast('প্রথমে পণ্য নির্বাচন করুন।');return;}
   if(product.sizes?.length && !state.size){toast('একটি সাইজ নির্বাচন করুন।');$('#orderSizeChoices').scrollIntoView({behavior:'smooth',block:'center'});return;}
   if(state.quantity<1 || state.quantity>Number(product.stock||20)){toast('সঠিক পরিমাণ নির্বাচন করুন।');return;}
-  const name=String(data.get('customer_name')||'').trim(),phone=String(data.get('phone')||'').replace(/[\s+-]/g,''),address=String(data.get('address')||'').trim();
+  const name=String(data.get('customer_name')||'').trim(),phone=normalizePhone(data.get('phone')),address=String(data.get('address')||'').trim();
   if(name.length<2){toast('আপনার পুরো নাম লিখুন।');form.elements.customer_name.focus();return;}
   if(!/^01\d{9}$/.test(phone)){toast('১১ সংখ্যার সঠিক বাংলাদেশি মোবাইল নম্বর দিন।');form.elements.phone.focus();return;}
   if(address.length<8){toast('সম্পূর্ণ ঠিকানা লিখুন।');form.elements.address.focus();return;}
@@ -132,6 +150,7 @@ async function submitOrder(event){
   try{
     const result=await api('/api/orders',{method:'POST',body:JSON.stringify(payload)});
     const order=result.order;
+    if(window.rihamTrack) window.rihamTrack('Purchase',{...trackData(),value:Number(order.total||0),currency:'BDT',order_id:order.invoice});
     $('#orderSuccess').hidden=false;
     $('#orderSuccess').innerHTML=`<strong>অর্ডার সফলভাবে গ্রহণ করা হয়েছে!</strong><br>অর্ডার নম্বর: <b>${esc(order.invoice)}</b><br>সর্বমোট: <b>${money(order.total)}</b><br>আমরা ফোনে যোগাযোগ করে অর্ডার নিশ্চিত করব।`;
     $('#orderSuccess').scrollIntoView({behavior:'smooth',block:'center'});
@@ -140,6 +159,29 @@ async function submitOrder(event){
     const first=orderableProducts()[0];if(first)state.selected=first;renderOrderForm();
   }catch(error){toast(error.message||'অর্ডার পাঠানো যায়নি। আবার চেষ্টা করুন।');}
   finally{button.disabled=false;button.textContent='🛒 অর্ডার কনফার্ম করুন';}
+}
+function renderReviews(){
+  const wrap=$('#reviewsSection'); if(!wrap) return;
+  const imgs=(state.settings.review_images||[]).filter(Boolean);
+  if(!imgs.length){wrap.hidden=true;return;}
+  wrap.hidden=false;
+  const track=$('#reviewTrack'), dots=$('#reviewDots');
+  track.innerHTML=imgs.map((src,i)=>`<figure class="review-slide"><img src="${esc(src)}" alt="গ্রাহকের রিভিউ ${i+1}" loading="lazy"></figure>`).join('');
+  track.querySelectorAll('img').forEach(img=>img.addEventListener('error',()=>img.closest('.review-slide')?.remove(),{once:true}));
+  const slides=()=>[...track.children];
+  dots.innerHTML=imgs.map((_,i)=>`<button type="button" aria-label="রিভিউ ${i+1}" data-dot="${i}"></button>`).join('');
+  const current=()=>{const s=slides();if(!s.length)return 0;const mid=track.scrollLeft+track.clientWidth/2;let best=0,d=1e9;s.forEach((el,i)=>{const c=el.offsetLeft+el.clientWidth/2,x=Math.abs(c-mid);if(x<d){d=x;best=i;}});return best;};
+  const go=i=>{const s=slides();if(!s.length)return;i=(i+s.length)%s.length;track.scrollTo({left:s[i].offsetLeft-(track.clientWidth-s[i].clientWidth)/2,behavior:'smooth'});};
+  const mark=()=>{const c=current();dots.querySelectorAll('button').forEach((b,i)=>b.classList.toggle('on',i===c));};
+  let timer=null;
+  const restart=()=>{clearInterval(timer);if(matchMedia('(prefers-reduced-motion: reduce)').matches||slides().length<2)return;timer=setInterval(()=>{if(!document.hidden)go(current()+1);},4500);};
+  track.addEventListener('scroll',()=>{clearTimeout(mark.t);mark.t=setTimeout(mark,60);},{passive:true});
+  $('#reviewPrev').onclick=()=>{go(current()-1);restart();};
+  $('#reviewNext').onclick=()=>{go(current()+1);restart();};
+  dots.onclick=e=>{const b=e.target.closest('[data-dot]');if(b){go(Number(b.dataset.dot));restart();}};
+  ['touchstart','mouseenter','focusin'].forEach(ev=>track.addEventListener(ev,()=>clearInterval(timer),{passive:true}));
+  ['touchend','mouseleave','focusout'].forEach(ev=>track.addEventListener(ev,restart,{passive:true}));
+  mark();restart();
 }
 async function boot(){
   $('#year').textContent=new Date().getFullYear();
@@ -153,7 +195,10 @@ async function boot(){
     const title=settings.hero_title||'শালীনতায় থাকুক নিজস্ব সৌন্দর্য';
     if($('#introTitle')) $('#introTitle').textContent=title.replace(/<[^>]*>/g,'');
     if($('#introText')) $('#introText').textContent=settings.hero_subtitle||'আমাদের বোরকা কালেকশনের প্রতিটি ডিজাইন ভালোভাবে দেখে পছন্দ করুন।';
-    updateWhatsapp();renderLookbook();startOrderForm();
+    const wanted=Number(new URLSearchParams(location.search).get('product'));
+    if(wanted){const w=state.products.find(p=>p.id===wanted&&p.stock>0);if(w)state.selected=w;}
+    updateWhatsapp();renderLookbook();renderReviews();startOrderForm();
+    if(window.rihamTrack) window.rihamTrack('ViewContent',{content_type:'product_group',currency:'BDT'});
   }catch(error){
     $('#lookbook').innerHTML='<div class="lookbook-loading">কালেকশন লোড করা যায়নি। অনুগ্রহ করে পেজ রিফ্রেশ করুন।</div>';
     $('#orderProductChoices').innerHTML=`<p class="form-loading">${esc(error.message)}</p>`;

@@ -9,7 +9,11 @@ function esc(v = '') { return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','
 async function api(url, opts = {}) {
   const r = await fetch(url, { headers: {'Content-Type':'application/json', ...(opts.headers || {})}, ...opts });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.detail || 'কাজটি সম্পন্ন হয়নি।');
+  if (!r.ok) {
+    let msg = data.detail;
+    if (Array.isArray(msg)) msg = msg.map(x => String(x.msg || '').replace(/^Value error, /, '')).filter(Boolean).join(' · ');
+    throw new Error(msg || 'কাজটি সম্পন্ন হয়নি।');
+  }
   return data;
 }
 function toast(msg) { const el = $('#adminToast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 3000); }
@@ -85,7 +89,7 @@ function fillSettings() {
   f.elements.dhaka_delivery_fee.value = settings.dhaka_delivery_fee ?? 50;
   f.elements.outside_delivery_fee.value = settings.outside_delivery_fee ?? 100;
   f.elements.new_arrival_enabled.checked = !!settings.new_arrival_enabled;
-  editingReviewImages = [...(settings.review_images || [])].slice(0,5);
+  editingReviewImages = [...(settings.review_images || [])].slice(0,10);
   renderReviewImageSlots();
 }
 function renderReviewImageSlots() {
@@ -222,7 +226,7 @@ $('#newArrivalImageFile').addEventListener('change', async e => {
 });
 $('#reviewImageFiles').addEventListener('change', async e => {
   const input=e.currentTarget, files=[...input.files||[]]; if (!files.length) return;
-  if (editingReviewImages.length+files.length>5) { toast('সর্বোচ্চ ৫টি রিভিউ ছবি রাখা যাবে।'); input.value=''; return; }
+  if (editingReviewImages.length+files.length>10) { toast('সর্বোচ্চ ১০টি রিভিউ ছবি রাখা যাবে।'); input.value=''; return; }
   try { editingReviewImages.push(...await uploadFiles(files)); renderReviewImageSlots(); toast('রিভিউ ছবি আপলোড হয়েছে। সেটিংস সংরক্ষণ করুন।'); }
   catch (err) { toast(err.message); } finally { input.value=''; }
 });

@@ -31,6 +31,17 @@
       <div class="lookbook-loading">কালেকশন লোড হচ্ছে…</div>
     </section>
 
+    <section class="reviews-section" id="reviewsSection" hidden aria-label="গ্রাহকদের মতামত">
+      <p class="eyebrow">CUSTOMER REVIEWS</p>
+      <h2>গ্রাহকদের মতামত</h2>
+      <div class="review-slider">
+        <button type="button" class="review-arrow review-prev" id="reviewPrev" aria-label="আগের রিভিউ">‹</button>
+        <div class="review-track" id="reviewTrack" tabindex="0"></div>
+        <button type="button" class="review-arrow review-next" id="reviewNext" aria-label="পরের রিভিউ">›</button>
+      </div>
+      <div class="review-dots" id="reviewDots"></div>
+    </section>
+
     <section class="order-section" id="order">
       <div class="order-heading">
         <p class="eyebrow">ORDER NOW</p>
@@ -47,7 +58,7 @@
           </div>
         </section>
 
-        <section class="form-step">
+        <section class="form-step" id="orderSizeStep">
           <h4><span>②</span> সাইজ বাছাই করুন <small>(ইঞ্চিতে)</small></h4>
           <div id="orderSizeChoices" class="size-choices"></div>
           <p class="size-help">সাইজ নিশ্চিত না হলে WhatsApp-এ জিজ্ঞেস করুন → <a id="sizeHelpWhatsapp" href="#" target="_blank" rel="noopener">যোগাযোগ করুন</a></p>
@@ -136,6 +147,7 @@
     <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3.2A12.7 12.7 0 0 0 5.1 22.4L3.5 28.8l6.6-1.7A12.7 12.7 0 1 0 16 3.2Zm0 23.1c-1.9 0-3.7-.5-5.3-1.5l-.4-.2-3.9 1 1-3.8-.2-.4A10.3 10.3 0 1 1 16 26.3Zm5.7-7.7c-.3-.2-1.8-.9-2.1-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-.3-.1-1.3-.5-2.5-1.6-.9-.8-1.5-1.8-1.7-2.1-.2-.3 0-.5.1-.6l.5-.6c.2-.2.2-.3.3-.5.1-.2 0-.4 0-.5-.1-.2-.7-1.7-.9-2.3-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1.1 1.1-1.1 2.6s1.1 3 1.2 3.2c.2.2 2.2 3.4 5.4 4.7.8.3 1.4.5 1.9.6.8.2 1.5.2 2 .1.6-.1 1.8-.7 2.1-1.4.3-.7.2-1.3.2-1.4-.1-.2-.3-.2-.6-.4Z"/></svg>
   </a>
   <div id="toast" class="v7-toast" role="status" aria-live="polite"></div>
+  <script src="/static/pixel.js" defer></script>
   <script src="/static/app.js" defer></script>
 </body>
 </html>

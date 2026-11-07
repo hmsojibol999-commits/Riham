@@ -36,3 +36,78 @@ body{background:var(--riham-bg);color:var(--riham-ink);font-family:'Noto Sans Be
 
 .image-unavailable{display:grid;place-items:center;background:#e8eee9}.image-error-note{position:absolute;inset:auto 12px 12px;background:rgba(0,0,0,.65);color:#fff;padding:9px;border-radius:8px;text-align:center;font-size:12px;z-index:3}
 .form-loading{color:#84918a;font-size:14px}
+
+/* ===== v8: compact order form (client asked for a smaller form) ===== */
+.order-section{padding:44px 12px 40px}
+.order-heading{margin-bottom:20px}
+.order-heading .eyebrow{font-size:12px}
+.order-heading h2{font-size:clamp(20px,4.5vw,26px)}
+.order-heading h3{font-size:clamp(20px,4.5vw,28px);margin:2px 0 9px}
+.heading-rule i:first-child{width:64px;height:5px}.heading-rule i:last-child{width:22px;height:5px}
+.inline-order-form{max-width:520px;border-radius:22px;padding:22px clamp(14px,5vw,26px) 20px}
+.form-step{margin-bottom:20px}
+.form-step h4{font-size:16px;margin:0 0 10px}
+.order-product-choices{gap:10px}
+.order-choice{min-height:0;border-width:2px;border-radius:16px;padding:12px 14px;gap:8px}
+.order-choice .choice-label{font-size:16px;margin-bottom:3px}
+.order-choice .choice-description{font-size:12px;-webkit-line-clamp:2;max-width:none}
+.order-choice .choice-price{font-size:17px}
+.choice-check{width:22px;height:22px;border-width:2px;font-size:13px}
+.popular-tag{top:-10px;left:16px;font-size:11px;padding:1px 11px}
+.size-choices{gap:8px}
+.size-choice{min-height:44px;border-width:2px;border-radius:12px;font-size:16px}
+.size-help{font-size:12px;margin-top:8px}
+.order-color-wrap select{height:44px;font-size:15px}
+.quantity-control{gap:12px}
+.quantity-control button{width:42px;height:42px;font-size:22px}
+.quantity-control output{font-size:22px;min-width:24px}
+.quantity-row p{font-size:14px}.quantity-row strong{font-size:18px}
+.customer-step .field-label{margin-bottom:10px}
+.field-label input,.field-label textarea{border-width:2px;border-radius:13px;padding:11px 14px;font-size:15px}
+.field-label input{min-height:48px}.field-label textarea{min-height:86px}
+.delivery-options{gap:9px}
+.delivery-option{grid-template-columns:34px 1fr 24px;min-height:0;border-width:2px;border-radius:15px;padding:11px 12px;gap:10px}
+.delivery-emoji,.payment-emoji{font-size:24px}
+.delivery-copy b,.payment-option b{font-size:15px}
+.delivery-copy small,.payment-option small{font-size:12px}
+.selection-mark{width:22px;height:22px;border-width:2px;font-size:12px}
+.payment-option{border-width:2px;border-radius:15px;padding:12px 14px;gap:12px}
+.order-summary{border-radius:15px;padding:14px 15px;margin:2px 0 18px}
+.order-summary h4{font-size:16px;margin-bottom:10px}
+.summary-line{font-size:14px;margin-bottom:8px}
+.summary-total{font-size:17px;margin-top:10px;padding-top:10px}
+.summary-total strong{font-size:22px}
+.confirm-order-btn{min-height:54px;border-radius:15px;font-size:18px;box-shadow:0 8px 18px rgba(23,107,57,.16)}
+.terms-note{font-size:12px;margin-top:12px}
+.order-success{font-size:14px;padding:14px}.order-success strong{font-size:16px}
+@media(min-width:900px){.inline-order-form{padding:26px 30px}.order-section{padding-top:56px}}
+@media(max-width:520px){
+  .order-section{padding:34px 8px 30px}
+  .inline-order-form{border-radius:18px;padding:18px 13px 16px}
+  .form-step h4{font-size:15px}
+  .order-choice{min-height:0;padding:10px 11px;border-radius:14px}
+  .order-choice .choice-label{font-size:15px}
+  .order-choice .choice-price{font-size:15px}
+  .size-choice{min-height:40px;font-size:15px;border-radius:11px}
+  .quantity-control button{width:38px;height:38px}
+  .delivery-option{min-height:0;padding:10px;grid-template-columns:30px 1fr 22px}
+  .confirm-order-btn{min-height:50px;font-size:16px;border-radius:13px}
+}
+
+/* ===== v8: customer review slider ===== */
+.reviews-section{background:#fff;padding:44px 0 36px;text-align:center}
+.reviews-section[hidden]{display:none}
+.reviews-section h2{margin:0 0 18px;font-size:clamp(20px,4.5vw,28px);font-weight:800;color:#111}
+.review-slider{position:relative;max-width:980px;margin:0 auto}
+.review-track{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:4px 14px 8px;scroll-padding:0 14px}
+.review-track::-webkit-scrollbar{display:none}
+.review-track:focus-visible{outline:2px solid var(--riham-green);outline-offset:2px;border-radius:10px}
+.review-slide{flex:0 0 78%;margin:0;scroll-snap-align:center;background:#f4f7f5;border:1px solid #e1e8e3;border-radius:16px;padding:8px;display:grid;place-items:center}
+.review-slide img{display:block;width:100%;max-height:440px;object-fit:contain;border-radius:11px;background:#fff}
+.review-arrow{display:none;position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.95);color:var(--riham-green);font-size:26px;line-height:1;box-shadow:0 4px 14px rgba(0,0,0,.18);cursor:pointer}
+.review-prev{left:6px}.review-next{right:6px}
+.review-dots{display:flex;justify-content:center;gap:7px;margin-top:10px}
+.review-dots button{width:8px;height:8px;border-radius:50%;border:0;padding:0;background:#c9d6cd;cursor:pointer;transition:.2s}
+.review-dots button.on{background:var(--riham-green);width:20px;border-radius:8px}
+@media(min-width:700px){.review-slide{flex-basis:44%}.review-arrow{display:grid;place-items:center}}
+@media(min-width:1000px){.review-slide{flex-basis:31%}}

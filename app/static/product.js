@@ -47,7 +47,7 @@ function render(){
   $('#productPageContent').querySelectorAll('[data-image]').forEach(b=>b.addEventListener('click',()=>showImage(b.dataset.image)));
   setupGallery(imgs);
   $('#productPageContent').querySelectorAll('[data-qty]').forEach(b=>b.addEventListener('click',()=>{qty=Math.max(1,Math.min(p.stock||1,qty+(b.dataset.qty==='+'?1:-1)));$('#qtyValue').textContent=qty;}));
-  $('#addCart').addEventListener('click',()=>{if(!validateOptions())return;const cart=JSON.parse(localStorage.getItem('riham_cart')||'[]');const key=[p.id,selectedSize,selectedColor].join('|'),old=cart.find(x=>x.key===key);if(old)old.quantity=Math.min(old.quantity+qty,20);else cart.push({key,product_id:p.id,quantity:qty,size:selectedSize,color:selectedColor});localStorage.setItem('riham_cart',JSON.stringify(cart));location.href='/?cart=open';});
+  $('#addCart').addEventListener('click',()=>{if(!validateOptions())return;location.href='/?product='+p.id+'#order';});
   $('#buyNow').addEventListener('click',openBuy);
   wireWhatsapp($('#waOrder'),()=>['আসসালামু আলাইকুম, আমি এই পণ্যটি অর্ডার করতে চাই।','পণ্য: '+p.name,selectedSize?'সাইজ: '+selectedSize:'',selectedColor?'রং: '+selectedColor:'','পরিমাণ: '+qty,'দাম: '+money(price(p)*qty),isFullSetFree(p)?'ডেলিভারি: ফুল সেটে ফ্রি':'ডেলিভারি: ঢাকার ভিতরে '+money(settings.dhaka_delivery_fee??50)+' / ঢাকার বাইরে '+money(settings.outside_delivery_fee??100),location.href].filter(Boolean).join('\n'));
 }

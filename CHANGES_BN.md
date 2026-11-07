@@ -27,3 +27,15 @@
 - Order form homepage-এর ভেতরেই আছে: product, size, quantity, name, phone, full address, delivery area, COD, summary ও confirm।
 - Gallery product-এর Images list থেকে আসে; Admin থেকে image upload, remove এবং ← / → button দিয়ে reorder করা যায়।
 - SarrahBD-এর verified image URLs ব্যবহার করা হয়েছে; source watermark অক্ষত আছে এবং ছবিগুলো remote load হয়।
+
+## V8 (client feedback)
+- BUG FIX: Admin থেকে নতুন পণ্য যোগ করলে আগে শুধু lookbook-এ ছবি আসত, order form-এ আসত না (ফর্মে শুধু ১টা ফুল সেট + ১টা কম্বো দেখাত)। এখন active ও স্টকে থাকা সব পণ্য order form-এ আসে।
+- BUG FIX: একাধিক রং থাকলে customer রং বাছতে পারত না (সবসময় প্রথম রং যেত)। এখন ২+ রং থাকলে রং বাছাই দেখায়।
+- BUG FIX: সাইজ না থাকা পণ্যে ভুয়া ডিফল্ট সাইজ দেখাত; এখন সাইজ ধাপটি লুকায়।
+- BUG FIX: +8801XXXXXXXXX ফরম্যাটের নম্বর ফ্রন্টএন্ডে reject হতো; এখন backend-এর মতোই গ্রহণ করে।
+- BUG FIX: validation error হলে "[object Object]" দেখাত (admin ও storefront); এখন পরিষ্কার বাংলা বার্তা।
+- BUG FIX: product পেজের "কার্টে যোগ করুন" v7-এ কাজ করত না; এখন order form-এ ওই পণ্য বাছাই করে নিয়ে যায়।
+- BUG FIX: PostgreSQL পুরোনো DB upgrade-এ boolean DEFAULT 0 migration crash করতে পারত; DEFAULT FALSE করা হয়েছে।
+- Order form ছোট (compact) করা হয়েছে (ফর্ম, বাটন, কার্ড, ইনপুটের মাপ কমানো)।
+- নতুন: গ্রাহক রিভিউ slider (swipe, তীর, dots, autoplay)। Admin → সেটিংস → গ্রাহকের রিভিউ ছবি (সর্বোচ্চ ১০টি)।
+- নতুন: Meta Pixel + GA4 loader (app/static/pixel.js)। Admin-এ Pixel ID বসালেই চালু। Events: PageView, ViewContent, InitiateCheckout, Purchase (মোট টাকা, BDT)। ID format backend-এও যাচাই হয়।

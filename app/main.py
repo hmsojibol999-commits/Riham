@@ -189,7 +189,7 @@ class SettingsInput(BaseModel):
     feature_3_text: str = Field(default="", max_length=240)
     feature_4_title: str = Field(default="", max_length=100)
     feature_4_text: str = Field(default="", max_length=240)
-    review_images: list[str] = Field(default_factory=list, max_length=5)
+    review_images: list[str] = Field(default_factory=list, max_length=10)
     about_text: str = Field(default="", max_length=5000)
     support_phone: str = Field(default="", max_length=24)
     support_email: str = Field(default="", max_length=160)
@@ -205,6 +205,22 @@ class SettingsInput(BaseModel):
     ga4_measurement_id: str = Field(default="", max_length=40)
     meta_pixel_id: str = Field(default="", max_length=40)
 
+    @field_validator("meta_pixel_id")
+    @classmethod
+    def _pixel_ok(cls, v):
+        v = (v or "").strip()
+        if v and not re.fullmatch(r"\d{8,20}", v):
+            raise ValueError("Meta Pixel ID শুধু ৮–২০ সংখ্যার হতে হবে (যেমন 1234567890123456)।")
+        return v
+
+    @field_validator("ga4_measurement_id")
+    @classmethod
+    def _ga4_ok(cls, v):
+        v = (v or "").strip()
+        if v and not re.fullmatch(r"G-[A-Za-z0-9]{4,20}", v):
+            raise ValueError("GA4 ID এই ফরম্যাটে দিন: G-XXXXXXXXXX")
+        return v
+
     @field_validator("hero_image", "new_arrival_image")
     @classmethod
     def _hero_ok(cls, v):
@@ -213,7 +229,7 @@ class SettingsInput(BaseModel):
     @field_validator("review_images")
     @classmethod
     def _review_images_ok(cls, values):
-        return [safe_image_url(v) for v in values if v and v.strip()][:5]
+        return [safe_image_url(v) for v in values if v and v.strip()][:10]
 
     @field_validator("facebook_url", "instagram_url")
     @classmethod
@@ -445,7 +461,7 @@ def migrate_v5():
         "trust_customer_count": "VARCHAR(40) DEFAULT ''",
         "trust_rating_value": "VARCHAR(8) DEFAULT ''",
         "trust_review_count": "INTEGER DEFAULT 0",
-        "new_arrival_enabled": "BOOLEAN DEFAULT 0",
+        "new_arrival_enabled": "BOOLEAN DEFAULT FALSE",
         "new_arrival_title": "VARCHAR(160) DEFAULT 'নতুন কালেকশন'",
         "new_arrival_subtitle": "VARCHAR(260) DEFAULT 'নতুন পছন্দের ডিজাইনগুলো দেখে নিন।'",
         "new_arrival_image": "VARCHAR(500) DEFAULT ''",
@@ -836,7 +852,7 @@ def update_settings(payload: SettingsInput, request: Request, db: Session = Depe
     if data["support_email"] and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", data["support_email"]):
         raise HTTPException(400, "সঠিক ইমেইল ঠিকানা লিখুন।")
     review_images = data.pop("review_images", [])
-    cfg.review_images_json = json.dumps(review_images[:5], ensure_ascii=False)
+    cfg.review_images_json = json.dumps(review_images[:10], ensure_ascii=False)
     for key, value in data.items(): setattr(cfg, key, value)
     db.commit(); db.refresh(cfg)
     return settings_dict(cfg)
